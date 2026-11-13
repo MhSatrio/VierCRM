@@ -1,0 +1,71 @@
+{
+  "id": "cfg_example_university_manual",
+  "name": "Example University – manual selectors (sample)",
+  "builtin": false,
+  "createdAt": "2026-11-04T09:14:30.700Z",
+  "targetTableId": "tbl_research",
+  "list": {
+    "auto": false,
+    "cardSelector": "li.person",
+    "linkSelector": "a"
+  },
+  "mappings": [
+    {
+      "fieldId": "fld_fullName",
+      "selector": "h1",
+      "extract": "text",
+      "from": "profile"
+    },
+    {
+      "fieldId": "fld_position",
+      "selector": "xpath://dt[normalize-space()=\"Position\"]/following-sibling::dd[1]",
+      "extract": "text",
+      "from": "profile"
+    },
+    {
+      "fieldId": "fld_department",
+      "selector": "xpath://dt[normalize-space()=\"Department\"]/following-sibling::dd[1]",
+      "extract": "text",
+      "from": "profile"
+    },
+    {
+      "fieldId": "fld_email",
+      "selector": "dd a[href^=\"mailto:\"]",
+      "extract": "email",
+      "from": "profile"
+    },
+    {
+      "fieldId": "fld_researchKeywords",
+      "selector": "h2 + ul li",
+      "extract": "text",
+      "from": "profile",
+      "multiple": true,
+      "join": ", "
+    }
+  ],
+  "autoDetect": {
+    "email": true,
+    "phone": true,
+    "name": true,
+    "position": true,
+    "institution": true,
+    "biography": true
+  },
+  "visitProfiles": true,
+  "returnToDirectory": true,
+  "renderJsProfiles": true,
+  "pagination": {
+    "mode": "next",
+    "nextSelector": "a[rel=\"next\"]",
+    "maxPages": 20,
+    "maxRecords": 500,
+    "maxScrollRounds": 10,
+    "delayMinMs": 1500,
+    "delayMaxMs": 3500,
+    "stopAfterEmptyPages": 2
+  },
+  "defaults": {
+    "fld_institution": "Example University",
+    "fld_country": "Netherlands"
+  }
+}

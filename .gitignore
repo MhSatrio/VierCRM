@@ -1,0 +1,11 @@
+node_modules/
+tests/e2e/out/
+backend/.state/
+docs/img/
+*.log
+
+# Added before GitHub publish (build output and secrets)
+dist/
+.env
+.env.*
+!.env.example
