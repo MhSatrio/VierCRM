@@ -1,0 +1,25 @@
+{
+  "firstPaintMs": 388,
+  "openBase (grid with rows)": 216,
+  "fullLoadMs": null,
+  "heapMB": 39,
+  "another tab edits a cell → grid shows it": 278,
+  "switch view (Missing Email)": 43,
+  "search “anna fixture” (keystrokes)": 24,
+  "sort by Full Name (header click)": 74,
+  "dashboardStatsMs": [
+    631,
+    938,
+    717,
+    711
+  ],
+  "dashboard (all bases counted)": 205,
+  "dashboardStatsMsMedian": 717,
+  "burst200": 1191,
+  "burstMainThreadBlockedMs": 284,
+  "records": 20000,
+  "at": "2026-11-04T11:10:55.839Z",
+  "distJsKB": 505,
+  "distFontKB": 46,
+  "distFiles": 30
+}

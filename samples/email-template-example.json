@@ -1,0 +1,8 @@
+{
+  "id": "tpl_intro",
+  "name": "Introduction – laboratory equipment sourcing",
+  "createdAt": "2026-11-04T09:14:30.703Z",
+  "updatedAt": "2026-11-04T09:14:30.703Z",
+  "subject": "Laboratory equipment sourcing for {Institution | fallback: your laboratory}",
+  "body": "Hi {First Name | fallback: Researcher},\n\nI noticed your research at {Institution}.\n[[I was particularly interested in your work on {Latest Research}.]]\n\nWould you be open to discussing laboratory equipment sourcing?\n\nBest regards,\nVierApparatus\nhttps://vierapparatus.com"
+}

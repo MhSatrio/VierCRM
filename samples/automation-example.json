@@ -1,0 +1,65 @@
+{
+  "id": "auto_example",
+  "tableId": "tbl_research",
+  "name": "Introduce ourselves to contacts that are ready for outreach",
+  "enabled": false,
+  "testMode": true,
+  "trigger": {
+    "type": "recordEntersView",
+    "viewId": "view_ready"
+  },
+  "conditions": {
+    "kind": "group",
+    "match": "and",
+    "items": [
+      {
+        "kind": "condition",
+        "fieldId": "fld_email",
+        "op": "isNotEmpty"
+      },
+      {
+        "kind": "condition",
+        "fieldId": "fld_position",
+        "op": "isNotEmpty"
+      },
+      {
+        "kind": "condition",
+        "fieldId": "fld_institution",
+        "op": "isNotEmpty"
+      },
+      {
+        "kind": "condition",
+        "fieldId": "fld_outreachStatus",
+        "op": "is",
+        "value": "Not Contacted"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "id": "a1",
+      "type": "runLookup"
+    },
+    {
+      "id": "a2",
+      "type": "wait",
+      "seconds": 30
+    },
+    {
+      "id": "a3",
+      "type": "sendEmail",
+      "templateId": "tpl_intro",
+      "providerId": "brevo",
+      "senderEmail": "info@vierapparatus.com"
+    },
+    {
+      "id": "a4",
+      "type": "changeStatus",
+      "statusFieldId": "fld_outreachStatus",
+      "markStatus": "Contacted"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "runCount": 0
+}
