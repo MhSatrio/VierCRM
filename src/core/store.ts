@@ -163,8 +163,40 @@ export async function updateRecord(id: string, cells: Record<string, CellValue>,
   return rec;
 }
 
-export async function deleteRecords(ids: string[]) {
-  for (const id of ids) { const r = await getRecord(id); if (!r) continue; await DB.del('records', id); await emit({ kind: 'deleted', tableId: r.tableId, record: r }); }
+// ------------------------------------------------------------------ trash (undo for deletes)
+/** What was deleted together, kept so it can be put back. Stored in the key-value store, never exported with a table. */
+export interface TrashBatch { id: string; at: string; tableId: string; records: RecordRow[] }
+export const TRASH_MAX_BATCHES = 10;
+export const TRASH_MAX_RECORDS = 5000;
+const TRASH_KEY = 'trash';
+export async function listTrash(): Promise<TrashBatch[]> { return (await DB.kvGet<TrashBatch[]>(TRASH_KEY, [])) ?? []; }
+async function addToTrash(batches: TrashBatch[]) {
+  let list = [...(await listTrash()), ...batches].slice(-TRASH_MAX_BATCHES);
+  let total = list.reduce((n, b) => n + b.records.length, 0);
+  while (total > TRASH_MAX_RECORDS && list.length > 1) { total -= list[0].records.length; list = list.slice(1); }   // oldest batches go first; the newest is always kept
+  await DB.kvSet(TRASH_KEY, list);
+}
+/** Puts a deleted batch back with its original ids and values. Nothing is triggered: no automation runs for a restored record. Returns how many came back. */
+export async function restoreTrash(batchId: string): Promise<number> {
+  const list = await listTrash(); const b = list.find(x => x.id === batchId); if (!b) throw new Error('That deletion is no longer available to undo.');
+  if (!(await getTable(b.tableId))) throw new Error('The base these records were in has been deleted, so they cannot be put back.');
+  const have = new Set((await DB.all<RecordRow>('records')).filter(r => r.tableId === b.tableId).map(r => r.id));
+  const back = b.records.filter(r => !have.has(r.id));
+  await DB.putMany('records', back);
+  await DB.kvSet(TRASH_KEY, list.filter(x => x.id !== batchId));
+  if (back.length) bc()?.postMessage({ type: 'changed', tableId: b.tableId, id: back[0].id, kind: 'created' });
+  return back.length;
+}
+
+/** Deletes records. A copy is kept first (see restoreTrash); the ids of the kept batches are returned (one per base). */
+export async function deleteRecords(ids: string[]): Promise<string[]> {
+  const found: RecordRow[] = [];
+  for (const id of ids) { const r = await getRecord(id); if (r) found.push(r); }
+  const byTable = new Map<string, RecordRow[]>(); for (const r of found) byTable.set(r.tableId, [...(byTable.get(r.tableId) ?? []), r]);
+  const batches: TrashBatch[] = [...byTable].map(([tableId, records]) => ({ id: uid('trash'), at: nowIso(), tableId, records }));
+  if (batches.length) await addToTrash(batches);                                   // copy first: an interruption after this loses nothing
+  for (const r of found) { await DB.del('records', r.id); await emit({ kind: 'deleted', tableId: r.tableId, record: r }); }
+  return batches.map(b => b.id);
 }
 
 // ------------------------------------------------------------------ scraping intake

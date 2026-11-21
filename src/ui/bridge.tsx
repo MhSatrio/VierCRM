@@ -90,13 +90,17 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | 
 
 // ------------------------------------------------------------------ toasts
 type ToastKind = '' | 'good' | 'bad';
-const ToastCtx = createContext<(msg: string, kind?: ToastKind) => void>(() => {});
+/** A toast may carry one button (for example "Undo"); such a toast stays longer. */
+export interface ToastAction { label: string; run(): void | Promise<void> }
+const ToastCtx = createContext<(msg: string, kind?: ToastKind, action?: ToastAction) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<{ id: number; msg: string; kind: ToastKind }[]>([]);
-  const push = useCallback((msg: string, kind: ToastKind = '') => { const id = Date.now() + Math.random(); setItems(x => [...x, { id, msg, kind }]); setTimeout(() => setItems(x => x.filter(i => i.id !== id)), kind === 'bad' ? 8000 : 3800); }, []);
-  return <ToastCtx.Provider value={push}>{children}<div className="toasts" role="status" aria-live="polite">{items.map(i => <div key={i.id} className={`toast ${i.kind}`}>{i.msg}</div>)}</div></ToastCtx.Provider>;
+  const [items, setItems] = useState<{ id: number; msg: string; kind: ToastKind; action?: ToastAction }[]>([]);
+  const close = useCallback((id: number) => setItems(x => x.filter(i => i.id !== id)), []);
+  const push = useCallback((msg: string, kind: ToastKind = '', action?: ToastAction) => { const id = Date.now() + Math.random(); setItems(x => [...x, { id, msg, kind, action }]); setTimeout(() => close(id), action ? 12000 : kind === 'bad' ? 8000 : 3800); }, [close]);
+  return <ToastCtx.Provider value={push}>{children}<div className="toasts" role="status" aria-live="polite">{items.map(i => <div key={i.id} className={`toast ${i.kind}`}>{i.msg}{i.action && <> <button className="sm" onClick={async () => { close(i.id); await i.action!.run(); }}>{i.action.label}</button></>}</div>)}</div></ToastCtx.Provider>;
 }
+
 
 // ------------------------------------------------------------------ primitives
 export function Modal({ title, onClose, children, footer, size = '' }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; size?: '' | 'wide' | 'narrow' }) {

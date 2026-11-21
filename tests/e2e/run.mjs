@@ -358,6 +358,28 @@ try {
   await app.goto(`chrome-extension://${extId}/app.html?e2e#/base/${pid}`); await app.waitForSelector('.g-row'); await sleep(500); await app.screenshot({ path: path.join(out, '18-places-base.png') });
   check('the Places base grid shows the scraped places with name, category, address, phone, website and e-mail columns first', (await app.locator('.g-row').count()) === 22 && /Samudra Cargo Express/.test(await app.locator('.grid-wrap').innerText()) && /Category/.test(await app.locator('.g-head').innerText()) && /Address/.test(await app.locator('.g-head').innerText()) && /Phone/.test(await app.locator('.g-head').innerText()));
 
+  step('Undo for deleted records, and the grid from the keyboard');
+  await ev(async () => { const { S } = window.__vier; for (const n of ['Undo Test A', 'Undo Test B']) await S.createRecord('tbl_research', { fld_fullName: n }, { silent: true }); });
+  await app.goto(`chrome-extension://${extId}/app.html?e2e#/base/tbl_research`); await app.waitForSelector('.g-row', { timeout: 15000 }); await sleep(500);
+  const hc = app.locator('.g-hc').first(); await hc.focus(); await app.keyboard.press('Enter'); await sleep(300);
+  check('a column header sorts from the keyboard (Enter) and reports it with aria-sort', (await hc.getAttribute('aria-sort')) !== 'none' && (await hc.getAttribute('tabindex')) === '0');
+  const countRows = () => ev(async () => (await window.__vier.S.listRecords('tbl_research')).length);
+  const nBefore = await countRows();
+  await app.locator('.g-row').first().locator('input[type=checkbox]').check();
+  await app.locator('.selbar').getByRole('button', { name: 'Delete', exact: true }).click();
+  await app.getByRole('button', { name: 'Delete 1', exact: true }).click(); await sleep(600);
+  check('deleting one record removes it', (await countRows()) === nBefore - 1);
+  check('the message after the deletion offers Undo', (await app.locator('.toast button', { hasText: 'Undo' }).count()) === 1);
+  await app.locator('.toast button', { hasText: 'Undo' }).click(); await sleep(800);
+  check('Undo puts the record back with its values', (await countRows()) === nBefore);
+  await app.locator('.g-row').first().locator('input[type=checkbox]').check();
+  await app.locator('.selbar').getByRole('button', { name: 'Delete', exact: true }).click();
+  await app.getByRole('button', { name: 'Delete 1', exact: true }).click(); await sleep(600);
+  await app.goto(`chrome-extension://${extId}/app.html?e2e#/settings`); await app.waitForSelector('h1:has-text("Settings")'); await sleep(500);
+  check('Settings lists the deletion under Recently deleted and can put it back', (await app.locator('h3', { hasText: 'Recently deleted' }).count()) === 1);
+  await app.getByRole('button', { name: 'Put back' }).first().click(); await sleep(800);
+  check('Put back restores it', (await countRows()) === nBefore);
+
   step('Backup and restore round-trip');
   const rt = await ev(async () => { const { DB, S } = window.__vier; const before = (await S.listRecords('tbl_research')).length; const dump = JSON.parse(JSON.stringify(await DB.exportBackup())); await DB.wipeAll(); const wiped = (await S.listRecords('tbl_research')).length; await DB.importBackup(dump); const files = await DB.all('files'); return { before, wiped, after: (await S.listRecords('tbl_research')).length, files: files.length, pdf: files[0] && files[0].data.byteLength > 50 }; });
   check('full backup (incl. attachments) restores every record and the stored PDF', rt.wiped === 0 && rt.after === rt.before && rt.files >= 1 && rt.pdf, JSON.stringify(rt));

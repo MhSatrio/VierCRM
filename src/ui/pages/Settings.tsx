@@ -6,6 +6,7 @@ import { Confirm, download, Field_, hasHostAccess, send, useToast } from '../bri
 import { signatureHtml } from '../../core/template';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { TokenQuotaPanel } from '../components/TokenQuotaPanel';
+import { TrashPanel } from '../components/TrashPanel';
 
 export function SettingsPage() {
   const toast = useToast(); const [s, setS] = useState<Settings>(); const [sec, setSec] = useState<Secrets>({}); const [brevo, setBrevo] = useState(''); const [ss, setSs] = useState(''); const [clientId, setClientId] = useState(''); const [issuerKey, setIssuerKey] = useState('');
@@ -52,6 +53,7 @@ export function SettingsPage() {
             <input ref={file} type="file" accept="application/json,.json" /><select value={restoreMode} onChange={e => setRestoreMode(e.target.value as 'merge' | 'replace')}><option value="merge">merge into current data</option><option value="replace">replace all current data</option></select>
             <button onClick={async () => { const f = file.current?.files?.[0]; if (!f) return toast('Choose a backup file first.', 'bad'); try { await DB.importBackup(JSON.parse(await f.text()), { replace: restoreMode === 'replace' }); toast('Backup restored', 'good'); } catch (e: any) { toast(e.message, 'bad'); } }}>Restore</button></div>
           <div className="row"><button onClick={async () => toast(`Loaded ${await S.loadSampleData()} sample (fictional) researchers`, 'good')}>Load sample data</button><span className="muted small">Four invented researchers on reserved .example domains, added to the Researchers base – for trying the app without scraping.</span></div>
+          <TrashPanel />
           <div><button className="danger" onClick={() => setWipe(true)}>Delete all VierCRM data…</button></div></div>
       </div>
       {wipe && <Confirm danger confirmLabel="Delete everything" message="Delete every database, record, file, automation and e-mail log in this browser? Download a backup first if you may need it. API keys are kept." onNo={() => setWipe(false)} onYes={async () => { setWipe(false); await DB.wipeAll(); await S.ensureSeeded(); toast('All data deleted', 'good'); }} />}

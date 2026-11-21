@@ -102,3 +102,6 @@ table.t { border-collapse: collapse; width: 100%; } table.t th, table.t td { tex
 .sp-head .brand { padding: 0; } .sp-head .brand img { height: 26px; }
 .sp-body { flex: 1; overflow: auto; padding: 10px 12px 24px; }
 .sp .basepick { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: var(--light-2); border: 1px solid var(--light); border-radius: 8px; margin-bottom: 10px; } .sp .basepick select { flex: 1; min-width: 0; }
+
+.g-hc:focus-visible { outline: 3px solid var(--primary, #4570B6); outline-offset: -3px; }
+.toast button { margin-left: 10px; background: #fff; color: var(--ink); border: 0; border-radius: 6px; padding: 3px 10px; font-weight: 600; cursor: pointer; }

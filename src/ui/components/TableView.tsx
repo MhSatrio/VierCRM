@@ -121,7 +121,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
       {open && <RecordPanel recordId={open} fields={fields} onClose={() => setOpen(null)} onChanged={() => void data.refreshOne(open)} />}
       {fm && <FieldManager tableId={tableId} fields={fields} sample={sample} onClose={() => setFm(false)} onChanged={() => void data.reloadMeta()} />}
       {imp && <ImportModal tableId={tableId} onClose={() => setImp(false)} onDone={() => void data.reload()} />}
-      {confirmDel && <Confirm danger confirmLabel={`Delete ${selected.size}`} message={`Delete ${selected.size.toLocaleString()} record(s)? This cannot be undone. Export a CSV first if you may need them.`} onNo={() => setConfirmDel(false)} onYes={async () => { setConfirmDel(false); const ids = [...selected]; await S.deleteRecords(ids); data.remove(ids); setSelected(new Set()); toast('Deleted', 'good'); }} />}
+      {confirmDel && <Confirm danger confirmLabel={`Delete ${selected.size}`} message={`Delete ${selected.size.toLocaleString()} record(s)? You can undo it right after, or later in Settings → Recently deleted.`} onNo={() => setConfirmDel(false)} onYes={async () => { setConfirmDel(false); const ids = [...selected]; const kept = await S.deleteRecords(ids); data.remove(ids); setSelected(new Set()); toast(`Deleted ${ids.length.toLocaleString()}`, 'good', kept.length ? { label: 'Undo', run: async () => { try { let n = 0; for (const k of kept) n += await S.restoreTrash(k); await data.reload(); toast(`Restored ${n.toLocaleString()}`, 'good'); } catch (e: any) { toast(e.message, 'bad'); } } } : undefined); }} />}
     </div>
   );
 }
