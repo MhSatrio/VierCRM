@@ -1,6 +1,7 @@
 // Settings (plain, in IndexedDB) and secrets (API keys / OAuth tokens, in chrome.storage.local only – never in IndexedDB, backups,
 // CSV exports, logs or page code). `storage` is injectable so tests run without a browser.
 import { kvGet, kvSet } from './db';
+import { decryptJson, encryptJson, isEnvelope } from './vault';
 
 export interface Settings {
   /** Override any API base URL (used by the tests to point at a local fake server; leave empty in normal use). */
@@ -53,9 +54,28 @@ export interface Secrets {
 export interface GmailAccount { email: string; accessToken: string; expiresAt: number; sendAs?: { email: string; name?: string; verified: boolean }[] }
 
 export interface SecretStorage { get(): Promise<Secrets>; set(s: Secrets): Promise<void> }
+/**
+ * Keys are kept encrypted (core/vault.ts) under `secretsV1`. Keys saved by an earlier version sit readable under `secrets`: the first
+ * read encrypts them and removes the readable copy. If the stored keys cannot be decrypted (the device key was lost) the result is
+ * empty and the keys have to be entered again; nothing is thrown at the screens.
+ */
+const chromeLocal = () => (globalThis as any).chrome?.storage?.local;
 let storage: SecretStorage = {
-  async get() { const r = await (globalThis as any).chrome?.storage?.local?.get('secrets'); return (r?.secrets as Secrets) || {}; },
-  async set(s) { await (globalThis as any).chrome?.storage?.local?.set({ secrets: s }); },
+  async get() {
+    const area = chromeLocal(); if (!area) return {};
+    const r = await area.get(['secretsV1', 'secrets']);
+    if (isEnvelope(r?.secretsV1)) {
+      try { return await decryptJson<Secrets>(r.secretsV1); }
+      catch { console.warn('VierCRM: the stored keys could not be decrypted (the device key changed). Enter them again in Settings.'); return {}; }
+    }
+    if (r?.secrets && typeof r.secrets === 'object') {
+      const legacy = r.secrets as Secrets;
+      await area.set({ secretsV1: await encryptJson(legacy) }); await area.remove('secrets');
+      return legacy;
+    }
+    return {};
+  },
+  async set(s) { const area = chromeLocal(); if (!area) return; await area.set({ secretsV1: await encryptJson(s) }); await area.remove('secrets'); },
 };
 export const setSecretStorage = (s: SecretStorage) => { storage = s; };
 export const getSecrets = () => storage.get();

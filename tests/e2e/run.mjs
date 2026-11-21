@@ -422,6 +422,12 @@ try {
   }
   check('no critical accessibility violation (axe, WCAG 2 A/AA) on the dashboard, a base grid, settings, e-mail, automations and research', a11yBad.length === 0, a11yBad.join('; '));
 
+  step('Keys are encrypted in the extension storage');
+  const stored = await app.evaluate(() => new Promise(r => chrome.storage.local.get(null, r)));
+  check('the key the test wrote readable was migrated: the storage now holds an encrypted envelope and no readable key', !('secrets' in stored) && stored.secretsV1 && stored.secretsV1.v === 1 && !JSON.stringify(stored).includes('test-key'), JSON.stringify(Object.keys(stored)));
+  const readBack = await send({ type: 'email:verifyBrevo', sender: 'info@vierapparatus.com' });
+  check('the service worker can still use the key after the migration (the fake Brevo answered the sender request with it)', !!readBack && readBack.ok === true, JSON.stringify(readBack));
+
   step('Backup and restore round-trip');
   const rt = await ev(async () => { const { DB, S } = window.__vier; const before = (await S.listRecords('tbl_research')).length; const dump = JSON.parse(JSON.stringify(await DB.exportBackup())); await DB.wipeAll(); const wiped = (await S.listRecords('tbl_research')).length; await DB.importBackup(dump); const files = await DB.all('files'); return { before, wiped, after: (await S.listRecords('tbl_research')).length, files: files.length, pdf: files[0] && files[0].data.byteLength > 50 }; });
   check('full backup (incl. attachments) restores every record and the stored PDF', rt.wiped === 0 && rt.after === rt.before && rt.files >= 1 && rt.pdf, JSON.stringify(rt));
