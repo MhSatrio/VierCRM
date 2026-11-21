@@ -110,3 +110,10 @@ table.t { border-collapse: collapse; width: 100%; } table.t th, table.t td { tex
 .g-c { user-select: none; }
 .g-c.rng { background: #e3f1fb; }
 .g-c.cur { outline: 2px solid var(--primary, #4570B6); outline-offset: -2px; background: #fff; }
+
+.nav a.on .n { color: var(--ink-2); }
+.primary .small, .primary .muted { color: #fff; opacity: 1 !important; }
+.chip a { color: inherit; text-decoration: underline; }
+
+button[role="listitem"] .small { opacity: 1 !important; color: var(--ink-2); }
+button.primary[role="listitem"] .small { color: #fff; }

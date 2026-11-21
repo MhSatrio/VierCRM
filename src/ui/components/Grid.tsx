@@ -113,15 +113,15 @@ export function Grid({ fields, rows, selected, onSelect, sort, onSort, onEdit, o
   return (
     <div className="grid-wrap" ref={wrap} tabIndex={0} aria-label="Records. Arrow keys move between cells, Ctrl+C copies, Ctrl+V pastes, Enter edits." onKeyDown={onKeyDown} onCopy={onCopy} onPaste={onPaste} onScroll={e => setScroll(s => ({ ...s, top: (e.target as HTMLElement).scrollTop }))} role="grid" aria-rowcount={rows.length}>
       <div className="g-head" style={{ width: total }} role="row">
-        <div className="g-sel" style={{ height: 34 }}><input type="checkbox" aria-label="Select all rows in this view" checked={allSelected} onChange={e => onSelect(e.target.checked ? new Set(rows.map(r => r.rec.id)) : new Set())} /></div>
+        <div className="g-sel" role="columnheader" aria-label="Select" style={{ height: 34 }}><input type="checkbox" aria-label="Select all rows in this view" checked={allSelected} onChange={e => onSelect(e.target.checked ? new Set(rows.map(r => r.rec.id)) : new Set())} /></div>
         {fields.map((f, i) => { const s = sort.find(x => x.fieldId === f.id); return <div key={f.id} className="g-hc" role="columnheader" tabIndex={0} aria-sort={s ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'} style={{ width: widths[i], position: 'relative' }} title={f.description || f.name} onClick={() => onSort(f.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(f.id); } }}>{f.name}{f.lookup ? ' ✦' : ''}{s ? (s.dir === 'asc' ? ' ▲' : ' ▼') : ''}<span className="g-rz" title="Drag to make this column wider or narrower" onPointerDown={e => startResize(e, f.id, widths[i])} onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'col-resize', zIndex: 2 }} /></div>; })}
       </div>
-      <div style={{ height: rows.length * ROW_H, width: total, position: 'relative' }}>
+      <div role="rowgroup" style={{ height: rows.length * ROW_H, width: total, position: 'relative' }}>
         {rows.slice(first, last).map((r, k) => {
           const i = first + k; const sel = selected.has(r.rec.id);
           return (
             <div key={r.rec.id} className={`g-row ${sel ? 'sel' : ''}`} style={{ top: i * ROW_H, height: ROW_H, width: total }} role="row" aria-selected={sel}>
-              <div className="g-sel"><input type="checkbox" aria-label={`Select row ${i + 1}`} checked={sel} onChange={e => toggle(i, e)} /></div>
+              <div className="g-sel" role="gridcell"><input type="checkbox" aria-label={`Select row ${i + 1}`} checked={sel} onChange={e => toggle(i, e)} /></div>
               {fields.map((f, c) => {
                 const isEd = editing?.rec === r.rec.id && editing.field === f.id; const canEdit = !isComputed(f) && f.type !== 'attachment';
                 const toggleBox = f.type === 'checkbox' && canEdit;

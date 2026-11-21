@@ -112,7 +112,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
     <div className="tv">
       <div className="tv-head">
         <div className="row" style={{ marginBottom: 6 }}><h1 style={{ margin: 0 }}>{title || data.table?.name}</h1><span className="muted">{data.partial ? 'loading all records…' : `${records.length.toLocaleString()} records`}</span>{auto && <span className="chip" title="Records in this base that have a name but no latest publication are researched automatically">✦ researching automatically{waiting.length ? ` · ${waiting.length}+ waiting` : ''}</span>}</div>
-        <div className="tv-views" role="tablist" aria-label="Views">{views.map(v => <button key={v.id} role="tab" aria-selected={v.id === view?.id} className={v.id === view?.id ? 'on' : ''} onClick={() => { setViewId(v.id); setSelected(new Set()); }}>{v.name}</button>)}<button onClick={addView} aria-label="New view">+ View</button></div>
+        <div className="tv-views"><div role="tablist" aria-label="Views" style={{ display: 'contents' }}>{views.map(v => <button key={v.id} role="tab" aria-selected={v.id === view?.id} className={v.id === view?.id ? 'on' : ''} onClick={() => { setViewId(v.id); setSelected(new Set()); }}>{v.name}</button>)}</div><button onClick={addView} aria-label="New view">+ View</button></div>
       </div>
       <div className="tv-bar">
         <button className={activeFilter ? 'primary' : ''} onClick={() => setPop(pop === 'filter' ? '' : 'filter')}>⚲ Filter{activeFilter ? ` · ${view.filter.items.length}` : ''}</button>

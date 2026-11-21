@@ -383,7 +383,7 @@ try {
   step('Spreadsheet cells: range, copy, paste, clear, undo');
   await app.goto(`chrome-extension://${extId}/app.html?e2e#/base/tbl_research`); await app.waitForSelector('.g-row', { timeout: 15000 }); await sleep(500);
   { const h = app.locator('.g-hc').first(); for (let i = 0; i < 2 && (await h.getAttribute('aria-sort')) !== 'none'; i++) { await h.click(); await sleep(300); } }   // the keyboard step above left the first column sorted: back to the table order
-  const cell = (r, c) => app.locator('.g-row').nth(r).locator('[role=gridcell]').nth(c);
+  const cell = (r, c) => app.locator('.g-row').nth(r).locator('.g-c').nth(c);
   const cellTexts = async (r, cs) => { const o = []; for (const c of cs) o.push((await cell(r, c).innerText()).trim()); return o; };
   await cell(0, 0).click(); await cell(1, 1).click({ modifiers: ['Shift'] });
   check('Shift+click selects a block of cells', (await app.locator('.g-c.rng').count()) === 4);
@@ -408,6 +408,19 @@ try {
   await app.locator('.toast button', { hasText: 'Undo' }).last().click().catch(() => {}); await sleep(300);
   await cell(0, 0).click(); await app.keyboard.press('ArrowDown'); await app.keyboard.press('Shift+ArrowRight');
   check('arrow keys move the cursor and Shift+arrow extends the range', (await app.locator('.g-c.cur').count()) === 1 && (await app.locator('.g-c.rng').count()) === 2);
+
+  step('Accessibility (axe, WCAG 2 A and AA rules) on the main screens');
+  const axeSource = fs.readFileSync(path.join(root, 'node_modules/axe-core/axe.min.js'), 'utf8');
+  const a11yRoutes = [['dashboard', '#/'], ['a base grid', '#/base/tbl_research'], ['settings', '#/settings'], ['e-mail', '#/email'], ['automations', '#/automations'], ['research', '#/research']];
+  const a11yBad = [];
+  for (const [label, hash] of a11yRoutes) {
+    await app.goto(`chrome-extension://${extId}/app.html?e2e${hash}`); await sleep(1200);
+    await app.evaluate(src => { if (!window.axe) (0, eval)(src); }, axeSource);
+    const res = await app.evaluate(async () => { const r = await window.axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } }); return r.violations.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length, help: v.help, where: v.nodes.slice(0, 2).map(n => n.target.join(' ')).join(' | ') })); });
+    for (const v of res) console.log(`    [a11y] ${label}: ${v.impact} ${v.id} (${v.nodes} element${v.nodes === 1 ? '' : 's'}) - ${v.help}${v.impact === 'critical' || v.id === 'color-contrast' ? ' @ ' + v.where : ''}`);
+    for (const v of res.filter(x => x.impact === 'critical')) a11yBad.push(`${label}: ${v.id}`);
+  }
+  check('no critical accessibility violation (axe, WCAG 2 A/AA) on the dashboard, a base grid, settings, e-mail, automations and research', a11yBad.length === 0, a11yBad.join('; '));
 
   step('Backup and restore round-trip');
   const rt = await ev(async () => { const { DB, S } = window.__vier; const before = (await S.listRecords('tbl_research')).length; const dump = JSON.parse(JSON.stringify(await DB.exportBackup())); await DB.wipeAll(); const wiped = (await S.listRecords('tbl_research')).length; await DB.importBackup(dump); const files = await DB.all('files'); return { before, wiped, after: (await S.listRecords('tbl_research')).length, files: files.length, pdf: files[0] && files[0].data.byteLength > 50 }; });
