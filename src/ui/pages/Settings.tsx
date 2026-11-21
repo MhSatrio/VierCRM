@@ -3,15 +3,18 @@ import * as DB from '../../core/db';
 import * as S from '../../core/store';
 import { getSecrets, getSettings, mask, saveSecrets, saveSettings, type Secrets, type Settings } from '../../core/settings';
 import { Confirm, download, Field_, hasHostAccess, send, useToast } from '../bridge';
+import { signatureHtml } from '../../core/template';
+import { HtmlPreview } from '../components/HtmlPreview';
+import { TokenQuotaPanel } from '../components/TokenQuotaPanel';
 
 export function SettingsPage() {
-  const toast = useToast(); const [s, setS] = useState<Settings>(); const [sec, setSec] = useState<Secrets>({}); const [brevo, setBrevo] = useState(''); const [ss, setSs] = useState(''); const [clientId, setClientId] = useState('');
+  const toast = useToast(); const [s, setS] = useState<Settings>(); const [sec, setSec] = useState<Secrets>({}); const [brevo, setBrevo] = useState(''); const [ss, setSs] = useState(''); const [clientId, setClientId] = useState(''); const [issuerKey, setIssuerKey] = useState('');
   const [host, setHost] = useState(false); const [wipe, setWipe] = useState(false); const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge'); const file = useRef<HTMLInputElement>(null);
   const load = async () => { setS(await getSettings()); const x = await getSecrets(); setSec(x); setClientId(x.gmail?.clientId || ''); setHost(await hasHostAccess()); };
   useEffect(() => { void load(); }, []);
   if (!s) return <div className="main muted">Loading…</div>;
   const up = (patch: Partial<Settings>) => setS({ ...s, ...patch });
-  const save = async () => { await saveSettings(s); if (brevo.trim()) await saveSecrets({ brevoApiKey: brevo.trim() }); if (ss.trim()) await saveSecrets({ semanticScholarKey: ss.trim() }); await saveSecrets({ gmail: { ...(sec.gmail || {}), clientId: clientId.trim() || undefined } }); setBrevo(''); setSs(''); await load(); toast('Settings saved', 'good'); };
+  const save = async () => { await saveSettings(s); if (issuerKey.trim()) await saveSecrets({ assessmentIssuerKey: issuerKey.trim() }); if (brevo.trim()) await saveSecrets({ brevoApiKey: brevo.trim() }); if (ss.trim()) await saveSecrets({ semanticScholarKey: ss.trim() }); await saveSecrets({ gmail: { ...(sec.gmail || {}), clientId: clientId.trim() || undefined } }); setBrevo(''); setSs(''); await load(); toast('Settings saved', 'good'); };
   const redirect = chrome.identity?.getRedirectURL?.() ?? '';
   return (
     <div className="main">
@@ -26,8 +29,17 @@ export function SettingsPage() {
         <div className="card col"><h2>E-mail</h2>
           <label className="chk"><input type="checkbox" checked={s.sendingEnabled} onChange={e => up({ sendingEnabled: e.target.checked })} /><b>Allow sending</b> – the global switch. While off, nothing is ever sent (previews and test sends still work).</label>
           <div className="grid2"><Field_ label="Default provider"><select value={s.defaultProvider} onChange={e => up({ defaultProvider: e.target.value as 'brevo' | 'gmail' })}><option value="brevo">Brevo</option><option value="gmail">Gmail</option></select></Field_><Field_ label="Default sender address"><input type="text" value={s.defaultSender} onChange={e => up({ defaultSender: e.target.value })} /></Field_><Field_ label="Sender name"><input type="text" value={s.senderName} onChange={e => up({ senderName: e.target.value })} /></Field_><Field_ label="Daily cap"><input type="number" min={1} value={s.dailySendCap} onChange={e => up({ dailySendCap: Number(e.target.value) })} /></Field_><Field_ label="Minimum seconds between e-mails"><input type="number" min={0} value={s.minSendGapSec} onChange={e => up({ minSendGapSec: Number(e.target.value) })} /></Field_></div>
+          <div className="grid2"><Field_ label="Signature (under every message, above the footer) – HTML or plain text" hint="Plain text is fine: line breaks are kept. Leave empty for no signature."><textarea rows={5} value={s.emailSignature} onChange={e => up({ emailSignature: e.target.value })} /></Field_>
+            <div className="col"><span className="small muted">Signature preview</span><HtmlPreview html={s.emailSignature.trim() ? signatureHtml(s.emailSignature) : ''} height={150} title="Signature preview" /></div></div>
           <Field_ label="Footer added to every e-mail (who you are and how to opt out)"><textarea rows={3} value={s.emailFooter} onChange={e => up({ emailFooter: e.target.value })} /></Field_>
+          <Field_ label="Reply-To address (optional)" hint="Empty: replies go to the sender address. Set it to receive replies in another mailbox."><input type="email" placeholder="e.g. info@vierapparatus.com" value={s.replyTo} onChange={e => up({ replyTo: e.target.value })} /></Field_>
           <div className="note warn">Cold e-mail to people who have not asked for it is regulated (GDPR / ePrivacy in Europe, CAN-SPAM in the US, and others). You are responsible for having a lawful basis, an honest sender identity, a working opt-out and a physical contact address in the footer. VierCRM never writes again to anyone who unsubscribed or bounced.</div>
+          <h3>Assessment server</h3>
+          <div className="grid2">
+            <Field_ label="Server address" hint="Where the assessment site runs. Local testing: http://localhost:3000. Production: the test.vierapparatus.com address."><input type="text" value={s.assessmentServerUrl} onChange={e => up({ assessmentServerUrl: e.target.value })} /></Field_>
+            <Field_ label="Token issuer key" hint="The TOKEN_ISSUER_KEY value from the assessment server's settings. Stored only in this browser's extension storage."><input type="password" placeholder={sec.assessmentIssuerKey ? `saved (${mask(sec.assessmentIssuerKey)}) – type to replace` : 'not set'} value={issuerKey} onChange={e => setIssuerKey(e.target.value)} autoComplete="off" /></Field_>
+          </div>
+          <h3>Assessment tokens today</h3><TokenQuotaPanel />
           <h3>Brevo</h3><Field_ label="API key" hint="Brevo → SMTP & API → API keys. Stored only in this browser's extension storage."><input type="password" placeholder={sec.brevoApiKey ? `saved (${mask(sec.brevoApiKey)}) – type to replace` : 'not set'} value={brevo} onChange={e => setBrevo(e.target.value)} autoComplete="off" /></Field_>
           <h3>Gmail</h3><div className="grid2"><Field_ label="Google OAuth client id" hint="Google Cloud → APIs & Services → Credentials → OAuth client ID (Web application). Enable the Gmail API."><input type="text" value={clientId} onChange={e => setClientId(e.target.value)} /></Field_><Field_ label="Authorised redirect URI to add in Google Cloud"><input type="text" readOnly value={redirect} onFocus={e => e.target.select()} /></Field_></div>
           <div className="row"><button onClick={async () => { await save(); try { const r: any = await send({ type: 'gmail:connect' }); toast(`Connected ${r.email}`, 'good'); await load(); } catch (e: any) { toast(e.message, 'bad'); } }}>Connect Gmail</button>{(sec.gmail?.accounts || []).map(a => <span className="chip" key={a.email}>{a.email}</span>)}</div>

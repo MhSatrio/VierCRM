@@ -16,8 +16,12 @@ export interface Settings {
   sendingEnabled: boolean;               // global kill switch – nothing is sent while false
   dailySendCap: number; minSendGapSec: number;
   emailFooter: string;                   // appended to every e-mail: who you are + how to opt out
+  emailSignature: string;                // added under every message, above the footer – HTML or plain text; empty = none
   defaultProvider: 'brevo' | 'gmail';
   defaultSender: string; senderName: string;
+  replyTo: string;                       // optional Reply-To header; empty = replies go to the sender address
+  /** Address of the assessment site (local testing or production). */
+  assessmentServerUrl: string;
   webhookUrl: string; webhookToken: string;  // optional: the small backend that receives Brevo webhooks
   brevoSyncMinutes: number;
 }
@@ -26,7 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiBases: {}, unpaywallEmail: '', autoAcceptConfidence: 0.75, autoAcceptMargin: 0.2, institutionalAccess: false, lookupDelayMs: 400, maxPdfMb: 40,
   sendingEnabled: false, dailySendCap: 40, minSendGapSec: 30,
   emailFooter: 'VierApparatus · https://vierapparatus.com\nIf you would rather not hear from us, reply "unsubscribe" and we will not write again.',
-  defaultProvider: 'brevo', defaultSender: 'info@vierapparatus.com', senderName: 'VierApparatus', webhookUrl: '', webhookToken: '', brevoSyncMinutes: 15,
+  emailSignature: '', defaultProvider: 'brevo', defaultSender: 'info@vierapparatus.com', senderName: 'VierApparatus', replyTo: '', assessmentServerUrl: 'http://localhost:3000', webhookUrl: '', webhookToken: '', brevoSyncMinutes: 15,
 };
 
 export async function getSettings(): Promise<Settings> {
@@ -41,6 +45,8 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
 // ------------------------------------------------------------------ secrets
 export interface Secrets {
   brevoApiKey?: string;
+  /** Bearer key for the assessment server's token issuer. Stored only in extension storage. */
+  assessmentIssuerKey?: string;
   semanticScholarKey?: string;
   gmail?: { clientId?: string; accounts?: GmailAccount[] };
 }

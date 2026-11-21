@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as DB from '../../core/db';
 import * as S from '../../core/store';
 import type { Field, FieldMapping, ScrapeConfig, ScrapeProgress } from '../../core/types';
-import { templateById } from '../../core/defaults';
+import { keyOf, templateById } from '../../core/defaults';
 import { ensureHostAccess, Field_, onRuntime, send, useAsync, useBase, useBases, useToast } from '../bridge';
 import { AddBaseModal } from '../components/AddBase';
 import { isMapsUrl } from '../../scrape/maps';
@@ -23,6 +23,38 @@ function Mapping({ m, fields, onChange, onRemove, onPick, picking }: { m: FieldM
       <button className="ghost sm" aria-label="Remove mapping" onClick={onRemove}>✕</button>
     </div>
   );
+}
+
+/** Opens the first entry the way a scrape does and shows what happened – so a missing e-mail can be traced (nothing is saved). */
+function ClickTest({ cfg, tabId }: { cfg: ScrapeConfig; tabId?: number }) {
+  const toast = useToast(); const [busy, setBusy] = useState(false); const [out, setOut] = useState<any>(null);
+  const run = async () => {
+    if (!tabId) return toast('Open the website in a normal tab first.', 'bad');
+    setBusy(true); setOut(null);
+    try { if (!(await ensureHostAccess())) return toast('VierCRM needs permission to read this website.', 'bad'); setOut(await send({ type: 'scrape:clickTest', tabId, config: cfg })); }
+    catch (e: any) { setOut({ error: e.message }); }
+    finally { setBusy(false); }
+  };
+  const r = out?.report;
+  const how: Record<string, string> = { panel: 'a panel or dialog', page: 'the same page now shows the candidate (its address changed)', 'new e-mail': 'one e-mail address that was not on the page before', nothing: 'nothing' };
+  return <div className="col">
+    <div className="row"><button className="sm" disabled={busy} onClick={run}>{busy ? 'Opening the first entry…' : 'Test on the first entry'}</button><span className="muted small">Opens the first entry the way a scrape does, reads what appears and closes it again. Nothing is saved.</span></div>
+    {out?.error && <div className="note bad small">{out.error}</div>}
+    {r && <div className="note small">
+      <div><b>First entry:</b> {out.entry || '—'}</div>
+      <div><b>Clicked:</b> <code style={{ wordBreak: 'break-all' }}>{r.target || '—'}</code></div>
+      <div><b>Opened:</b> {how[r.how] ?? r.how}</div>
+      {r.urlAfter !== r.urlBefore && <div><b>Address changed to:</b> <code style={{ wordBreak: 'break-all' }}>{r.urlAfter}</code></div>}
+      {r.panel && <div><b>Panel:</b> <code style={{ wordBreak: 'break-all' }}>{r.panel}</code></div>}
+      <div><b>Pressed a “show contact details” control:</b> {r.revealed ? 'yes' : 'no'}</div>
+      <div><b>E-mails that appeared after the click:</b> {r.newEmails?.length ? r.newEmails.join(', ') : 'none'}</div>
+      <div><b>Read:</b> e-mail {out.email || 'none'} · phone {out.phone || 'none'}</div>
+      <div><b>Closed again:</b> {r.closed ? 'yes' : 'no'}</div>
+      {r.structure && <div><button className="sm" onClick={() => navigator.clipboard.writeText(r.structure).then(() => toast('Copied. Paste it into the chat.', 'good'), (e: any) => toast(e.message, 'bad'))}>Copy the view’s structure (words and addresses masked)</button></div>}
+      {r.panelText && <details><summary className="small">What the panel says</summary><div className="small" style={{ wordBreak: 'break-word' }}>{r.panelText}</div></details>}
+      {!out.opened && <div className="note warn small">Nothing was read from this entry. Send this report (names and e-mail addresses may be removed) so the click can be adjusted for this site.</div>}
+    </div>}
+  </div>;
 }
 
 export function ConfigEditor({ cfg, setCfg, fields, tabId }: { cfg: ScrapeConfig; setCfg(c: ScrapeConfig): void; fields: Field[]; tabId?: number }) {
@@ -64,6 +96,8 @@ export function ConfigEditor({ cfg, setCfg, fields, tabId }: { cfg: ScrapeConfig
       </div>
       <div className="card col"><h3>3 · Detail pages</h3>
         <label className="chk"><input type="checkbox" checked={cfg.visitProfiles} onChange={e => setCfg({ ...cfg, visitProfiles: e.target.checked })} />Open each entry’s own page and read it (otherwise only the list card is read)</label>
+        <label className="chk"><input type="checkbox" checked={!!cfg.clickDetails} onChange={e => setCfg({ ...cfg, clickDetails: e.target.checked })} />Click each entry’s name to open the panel or dialog that shows its contact details (for lists that show e-mail or phone only after a click), read it, and close it – the list keeps its place</label>
+        {cfg.clickDetails && <ClickTest cfg={cfg} tabId={tabId} />}
         <label className="chk"><input type="checkbox" checked={cfg.renderJsProfiles} onChange={e => setCfg({ ...cfg, renderJsProfiles: e.target.checked })} />If a detail page only appears after JavaScript runs (or lives on another domain), open it in a background tab and read it there</label>
         <label className="chk"><input type="checkbox" checked={cfg.returnToDirectory} onChange={e => setCfg({ ...cfg, returnToDirectory: e.target.checked })} />Keep the list page where it is (detail pages are read in the background, so the list never loses its place)</label>
       </div>
@@ -102,7 +136,7 @@ export function Scraper({ compact }: { compact?: boolean }) {
   useEffect(() => { if (isMaps && cfg && cfg.builtin && !cfg.maps && cfgs) { const w = cfgs.find(x => x.id === 'cfg_google_maps'); if (w) { setCfgId(w.id); setCfgState(structuredClone(w)); setDirty(false); setPreview(null); } } }, [isMaps, cfg, cfgs]);
   const setCfg = (c: ScrapeConfig) => { setCfgState(c); setDirty(true); };
   // choosing another base: the field-specific parts of the configuration no longer apply; the built-in list type follows the base (companies → "any list")
-  const chooseBase = (id: string) => { pickBase(id); const t = tables.find(x => x.id === id); setCfgState(c => { if (!c) return c; const next = { ...c, mappings: [], defaults: {} }; if (c.builtin && cfgs) { const want = t?.template === 'places' ? 'cfg_google_maps' : t?.template === 'companies' || t?.template === 'blank' ? 'cfg_company_listing' : 'cfg_university_directory'; const w = cfgs.find(x => x.id === want); if (w) { setCfgId(w.id); return structuredClone(w); } } return next; }); setPreview(null); };
+  const chooseBase = (id: string) => { pickBase(id); const t = tables.find(x => x.id === id); setCfgState(c => { if (!c) return c; const next = { ...c, mappings: [], defaults: {} }; if (c.builtin && cfgs) { const want = t?.template === 'places' ? 'cfg_google_maps' : t?.template === 'companies' || t?.template === 'blank' ? 'cfg_company_listing' : 'cfg_university_directory'; const w = cfgs.find(x => x.id === want); if (w) { setCfgId(w.id); return { ...structuredClone(w), clickDetails: c.clickDetails }; } } return next; }); setPreview(null); };
   const choose = (id: string) => { const c = cfgs?.find(x => x.id === id); if (c) { setCfgId(id); setCfgState(structuredClone(c)); setDirty(false); setPreview(null); } };
   const save = async () => { if (!cfg) return; const c = { ...cfg, targetTableId: tableId }; await DB.put('configs', c); setDirty(false); await reloadCfgs(); toast('Configuration saved', 'good'); };
   const saveAs = async () => { if (!cfg) return; const name = prompt('Name for this configuration (e.g. the website)', cfg.builtin ? '' : cfg.name); if (!name) return; const c: ScrapeConfig = { ...structuredClone(cfg), id: S.uid('cfg'), name, builtin: false, createdAt: new Date().toISOString(), targetTableId: tableId }; await DB.put('configs', c); await reloadCfgs(); setCfgId(c.id); setCfgState(c); setDirty(false); toast('Saved as a new configuration', 'good'); };
@@ -120,6 +154,7 @@ export function Scraper({ compact }: { compact?: boolean }) {
         <div className="row"><h3 style={{ margin: 0 }}>Save to base</h3><span className="muted small">where the scraped records are stored</span></div>
         <div className="row"><select aria-label="Save scraped records to" className="grow" style={{ fontWeight: 600 }} value={tableId} onChange={e => (e.target.value === '__new' ? setNewBase(isMaps ? 'places' : 'companies') : chooseBase(e.target.value))}>{tables.map(t => <option key={t.id} value={t.id}>{t.name} ({(counts[t.id] ?? 0).toLocaleString()} records)</option>)}<option value="__new">＋ New base…</option></select><button className="sm" onClick={() => setNewBase(isMaps ? 'places' : 'companies')}>＋ New base</button></div>
         {base && <div className="muted small">{templateById(base.template).description} Records that already exist in “{base.name}” (same e-mail, website or profile link …) are merged, never duplicated.</div>}
+        {base && fields && !fields.some(f => keyOf(f) === 'email') && <div className="note warn small"><b>“{base.name}” has no Email field</b>, so scraped e-mail addresses cannot be saved here. Choose a base made from the Contacts template (＋ New base → Contacts).</div>}
       </div>
       <div className="card col">
         <div className="row"><b>Current website</b>{tab ? <span className="chip">{tab.title?.slice(0, 40) || 'Untitled'}</span> : <span className="muted">no tab</span>}<button className="sm right" onClick={readTab}>↻</button></div>
@@ -139,7 +174,7 @@ export function Scraper({ compact }: { compact?: boolean }) {
         <div className="row small"><span className="chip">{preview.withPhone} with phone</span><span className="chip">{preview.withAddress} with address</span><span className="chip">{preview.withWebsite} with website</span></div>
         {preview.count === 0 && <div className="note warn">No places were found. Wait until Google Maps has listed the results in the left-hand panel (a consent page, sign-in or CAPTCHA also blocks the read), then press Preview again.</div>}
         <table className="t"><thead><tr><th>Name</th><th>Category · rating</th><th>Address</th><th>Phone</th><th>Website</th></tr></thead><tbody>{preview.sample.map((p: any, i: number) => <tr key={i}><td>{p.name}</td><td className="small">{p.position || '—'}</td><td className="small">{p.department || '—'}</td><td className="small">{p.phone || '—'}</td><td className="small" style={{ wordBreak: 'break-all' }}>{p.website ? p.website.replace(/^https?:\/\/(www\.)?/, '') : '—'}</td></tr>)}</tbody></table></div>}
-      {preview && !preview.maps && <div className="card"><b>{preview.count} {kindLabel} detected</b> <span className="muted small">on “{preview.title}”</span>{preview.first && <div className="note warn small"><b>This is not the first page of the list.</b> A scrape only moves forward; with “Start from the first page” (Edit configuration → Pagination, on by default) VierCRM opens <code style={{ wordBreak: 'break-all' }}>{preview.first}</code> first.</div>}{preview.next && (preview.next.url ? <div className="note good small">Next page: <code style={{ wordBreak: 'break-all' }}>{preview.next.url}</code> – found by {preview.next.how}.</div> : /^last page/.test(preview.next.how) ? <div className="note small">This looks like the last page ({preview.next.how}).</div> : <div className="note warn small"><b>No next page found.</b> {preview.next.pagerSeen ? 'A pager is on the page but VierCRM could not follow it' : 'No pager was found on this page'} – looked at: {(preview.next.evidence || []).join('; ')}. If the list has more pages, set “How does the list continue?” in Edit configuration → Pagination (or pick the Next button with ⌖).</div>)}{preview.count === 0 && <div className="note warn">Nothing was detected. Scroll the list into view, wait for it to finish loading, or switch to manual selectors (Edit configuration → pick a card).</div>}
+      {preview && !preview.maps && <div className="card"><b>{preview.count} {kindLabel} detected</b> <span className="muted small">on “{preview.title}”</span>{preview.first && <div className="note warn small"><b>This is not the first page of the list.</b> A scrape only moves forward; with “Start from the first page” (Edit configuration → Pagination, on by default) VierCRM opens <code style={{ wordBreak: 'break-all' }}>{preview.first}</code> first.</div>}{preview.next && (preview.next.url ? <div className="note good small">Next page: <code style={{ wordBreak: 'break-all' }}>{preview.next.url}</code> – found by {preview.next.how}.</div> : preview.next.pressed ? <div className="note good small">Next page: {preview.next.how}. VierCRM presses it and waits until the list has changed.</div> : /^last page/.test(preview.next.how) ? <div className="note small">This looks like the last page ({preview.next.how}).</div> : <div className="note warn small"><b>No next page found.</b> {preview.next.pagerSeen ? 'A pager is on the page but VierCRM could not follow it' : 'No pager was found on this page'} – looked at: {(preview.next.evidence || []).join('; ')}. If the list has more pages, set “How does the list continue?” in Edit configuration → Pagination (or pick the Next button with ⌖).</div>)}{preview.count === 0 && <div className="note warn">Nothing was detected. Scroll the list into view, wait for it to finish loading, or switch to manual selectors (Edit configuration → pick a card).</div>}
         <table className="t"><thead><tr><th>Name</th><th>Detail</th><th>More</th></tr></thead><tbody>{preview.sample.map((p: any, i: number) => <tr key={i}><td>{p.name}</td><td className="small">{p.position || '—'}</td><td className="small">{p.department || '—'}</td></tr>)}</tbody></table></div>}
       {edit && cfg && fields && <>
         <div className="row"><button className="primary" disabled={!dirty || cfg.builtin} title={cfg.builtin ? 'The built-in configuration is read-only – use “Save as new”' : ''} onClick={save}>Save</button><button onClick={saveAs}>Save as new…</button><button disabled={!!cfg.builtin} onClick={remove}>Delete</button>{dirty && <span className="chip warn">unsaved changes (they are still used for the next run)</span>}</div>

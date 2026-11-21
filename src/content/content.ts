@@ -4,11 +4,13 @@
 import type { ContentRequest, TabRequest } from '../shared/messages';
 import type { ScrapeConfig, ScrapeProgress } from '../core/types';
 import { crawlPage, type PageIO } from '../scrape/pageCrawler';
-import { findFirst, findNext } from '../scrape/paginate';
+import { findFirst, findNext, findNextButton } from '../scrape/paginate';
 import { detectPeople } from '../scrape/detect';
 import { extractPerson, type Extracted } from '../scrape/extract';
 import { describePick } from '../scrape/selector';
 import { looksLikeName } from '../scrape/detect';
+import { emptyClickReport, readOpenedEntry } from '../scrape/clickDetail';
+import { fid } from '../core/defaults';
 import { sleep, text, waitFor } from '../scrape/dom';
 import { findFeed, isMapsPage, isPlacePage, readCards, searchQueryOf } from '../scrape/maps';
 import { crawlMaps, placeAsExtracted, type MapsIO } from '../scrape/mapsCrawler';
@@ -123,9 +125,20 @@ if (typeof window.__vierCrm === 'function') { try { window.__vierCrm(); } catch 
           }
           const cards = detectPeople(document, { cardSelector: msg.config.list.auto ? undefined : msg.config.list.cardSelector, linkSelector: msg.config.list.auto ? undefined : msg.config.list.linkSelector, baseUrl: location.href, kind: msg.config.list.kind });
           const nx = findNext(document, location.href, msg.config.pagination, 1, cards.length);
-          respond({ first: findFirst(document, location.href), next: { url: nx.url, how: nx.how, evidence: nx.evidence, pagerSeen: nx.pagerSeen }, count: cards.length, title: document.title, url: location.href, sample: cards.slice(0, 12).map(c => ({ name: c.name, url: c.url, position: c.facts.position, department: c.facts.department, email: c.facts.email })) }); return;
+          // no address to follow, but a control the crawler presses (a Next button, or the next number of a pager made of buttons)
+          const pressed = !nx.url && !!findNextButton(document, msg.config.pagination);
+          respond({ first: findFirst(document, location.href), next: { url: nx.url, how: pressed ? 'a control in the page that VierCRM presses to go on' : nx.how, pressed, evidence: nx.evidence, pagerSeen: nx.pagerSeen }, count: cards.length, title: document.title, url: location.href, sample: cards.slice(0, 12).map(c => ({ name: c.name, url: c.url, position: c.facts.position, department: c.facts.department, email: c.facts.email })) }); return;
         }
         case 'detect:first': respond({ first: findFirst(document, location.href), url: location.href }); return;
+        case 'detect:clickTest': {
+          // the first entry is opened exactly like a scrape would open it, and everything that happened is reported back (nothing is saved)
+          const cfg = msg.config; const detect = { cardSelector: cfg.list.auto ? undefined : cfg.list.cardSelector, linkSelector: cfg.list.auto ? undefined : cfg.list.linkSelector, baseUrl: location.href, kind: cfg.list.kind };
+          await waitFor(() => detectPeople(document, detect).length > 0, { timeout: 6000, interval: 300 });
+          const card = detectPeople(document, detect)[0];
+          if (!card) { respond({ error: 'No entries were found on this page. Wait until the list is shown, then press the test again.' }); return; }
+          const report = emptyClickReport(); const ex = await readOpenedEntry(document, card, cfg, detect, report);
+          respond({ ok: true, entry: card.name, opened: !!ex, email: ex?.values[fid('email')] || '', phone: ex?.values[fid('phone')] || '', report }); return;
+        }
         case 'picker:start': startPicker(); respond({ ok: true }); return;
         case 'picker:stop': picking?.stop(); respond({ ok: true }); return;
         case 'widget:progress': showWidget(msg.progress); respond({ ok: true }); return;

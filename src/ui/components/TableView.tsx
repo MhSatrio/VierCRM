@@ -7,6 +7,8 @@ import { autoMap, parseCsv, rowsFromCsv, toCsv, type CsvMapping } from '../../co
 import { computeRecord } from '../../core/values';
 import type { CellValue, ConditionGroup, SortSpec, View } from '../../core/types';
 import { findCandidates } from '../../research/auto';
+import { findNameField, issueTokensForRecords } from '../../assessment/issuer';
+import { getSecrets, getSettings } from '../../core/settings';
 import { Confirm, Field_, Modal, download, ensureHostAccess, onRuntime, send, useTable, useToast } from '../bridge';
 import { Grid } from './Grid';
 import { FilterBuilder } from './FilterBuilder';
@@ -46,6 +48,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
   useEffect(() => { if (views.length && !views.some(v => v.id === viewId)) setViewId(views[0].id); }, [views, viewId]);
   useEffect(() => onRuntime<{ done: number; total: number }>('lookup:progress', m => setProgress(m.done >= m.total ? null : { done: m.done, total: m.total })), []);
 
+  const nameField = useMemo(() => findNameField(fields), [fields]);
   const visibleFields = useMemo(() => fields.filter(f => !f.hidden && !(view?.hiddenFieldIds || []).includes(f.id)), [fields, view]);
   const rows = useMemo(() => (view ? applyFilterSort(fields, records, view.filter, view.sort, search) : []), [fields, records, view, search]);
   const errors = useMemo(() => { const out: Record<string, Record<string, string>> = {}; if (fields.some(f => f.type === 'formula')) for (const r of rows.slice(0, 400)) { const e = computeRecord(fields, r.rec).errors; if (Object.keys(e).length) out[r.rec.id] = e; } return out; }, [rows, fields]);
@@ -61,6 +64,23 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
   const onEdit = async (id: string, fieldId: string, value: CellValue) => { try { data.upsert(await S.updateRecord(id, { [fieldId]: value })); } catch (e: any) { toast(e.message, 'bad'); } };
   const newRecord = async () => { const r = await S.createRecord(tableId, {}); data.upsert(r); setOpen(r.id); };
   const exportCsv = (onlySel: boolean) => { const rs = rows.filter(r => !onlySel || selected.has(r.rec.id)); download(`${(title || data.table?.name || 'records').replace(/\W+/g, '-')}.csv`, toCsv(visibleFields, rs.map(r => r.values)), 'text/csv;charset=utf-8'); };
+  /** Creates one assessment token per selected record. The server decides the daily limit and the expiry. */
+  const issueTokens = async (ids: string[], replace: boolean) => {
+    if (!ids.length) return;
+    const verb = replace ? 'Re-issue' : 'Issue';
+    if (!confirm(`${verb} access tokens for ${ids.length} record(s)? Each token is valid for four days and the server allows 20 new tokens a day. The tokens are written into this base.${replace ? ' Re-issuing cancels the token already in place for those people.' : ''}`)) return;
+    try {
+      const [settings, secrets] = await Promise.all([getSettings(), getSecrets()]);
+      const sum = await issueTokensForRecords(
+        { fetch: (u, i) => fetch(u, i), listFields: S.listFields, addField: S.addField, getRecord: S.getRecord, updateRecord: S.updateRecord },
+        { baseUrl: settings.assessmentServerUrl, issuerKey: secrets.assessmentIssuerKey ?? '' },
+        tableId, ids, { replace });
+      await data.reloadMeta(); await data.reload();
+      const skipped = sum.skipped.length ? ` ${sum.skipped.length} skipped (first: ${sum.skipped[0].reason}).` : '';
+      const left = sum.remainingToday !== null ? ` ${sum.remainingToday} left for today.` : '';
+      toast(`Issued ${sum.issued} token(s).${skipped}${left}`, sum.issued > 0 ? 'good' : 'bad');
+    } catch (e: any) { toast(e.message, 'bad'); }
+  };
   const research = async (ids: string[]) => { if (!ids.length) return; try { await ensureHostAccess(); setProgress({ done: 0, total: ids.length }); await send({ type: 'lookup:many', recordIds: ids }); toast(`Research finished for ${ids.length} record(s). Open a record to see what was found.`, 'good'); await data.reload(); } catch (e: any) { toast(e.message, 'bad'); } finally { setProgress(null); } };
   const sample = records[0];
   const hasSearch = fields.some(f => f.lookup?.kind === 'search'); const auto = !!data.table?.autoResearch && hasSearch;
@@ -96,7 +116,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
       {progress && <div className="panel-pop"><div className="bar" role="progressbar" aria-valuenow={progress.done} aria-valuemax={progress.total}><i style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div><span className="small muted">Researching {progress.done} / {progress.total}…</span></div>}
       {pop === 'filter' && view && <div className="panel-pop"><FilterBuilder group={view.filter} fields={fields} onChange={setFilter} /><div className="row" style={{ marginTop: 6 }}><button className="sm" onClick={() => setFilter(emptyGroup())}>Clear filter</button><span className="muted small">Saved automatically with this view.</span></div></div>}
       {pop === 'sort' && view && <div className="panel-pop">{view.sort.map((s, i) => <div className="rule" key={i}><select value={s.fieldId} onChange={e => patchView({ sort: view.sort.map((x, j) => (j === i ? { ...x, fieldId: e.target.value } : x)) })}>{fields.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><select value={s.dir} onChange={e => patchView({ sort: view.sort.map((x, j) => (j === i ? { ...x, dir: e.target.value as 'asc' | 'desc' } : x)) })}><option value="asc">A → Z / low → high</option><option value="desc">Z → A / high → low</option></select><button className="ghost sm" onClick={() => patchView({ sort: view.sort.filter((_, j) => j !== i) })}>✕</button></div>)}<button className="sm" onClick={() => patchView({ sort: [...view.sort, { fieldId: fields[0].id, dir: 'asc' }] })}>+ Sort</button></div>}
-      {selected.size > 0 && <div className="selbar" role="toolbar"><b>{selected.size.toLocaleString()} selected</b><button onClick={() => research([...selected].slice(0, 500))}>✦ Research</button><button onClick={() => exportCsv(true)}>Export CSV</button><button onClick={() => setConfirmDel(true)}>Delete</button><button className="ghost" style={{ color: '#fff' }} onClick={() => setSelected(new Set())}>Clear</button></div>}
+      {selected.size > 0 && <div className="selbar" role="toolbar"><b>{selected.size.toLocaleString()} selected</b><button onClick={() => research([...selected].slice(0, 500))}>✦ Research</button>{nameField && <><button onClick={() => issueTokens([...selected], false)}>Issue tokens</button><button onClick={() => issueTokens([...selected], true)}>Re-issue (cancels old)</button></>}<button onClick={() => exportCsv(true)}>Export CSV</button><button onClick={() => setConfirmDel(true)}>Delete</button><button className="ghost" style={{ color: '#fff' }} onClick={() => setSelected(new Set())}>Clear</button></div>}
       <Grid fields={visibleFields} rows={rows} errors={errors} selected={selected} onSelect={setSelected} sort={view?.sort || []} onSort={toggleSort} onEdit={onEdit} onOpen={setOpen} />
       {open && <RecordPanel recordId={open} fields={fields} onClose={() => setOpen(null)} onChanged={() => void data.refreshOne(open)} />}
       {fm && <FieldManager tableId={tableId} fields={fields} sample={sample} onClose={() => setFm(false)} onChanged={() => void data.reloadMeta()} />}

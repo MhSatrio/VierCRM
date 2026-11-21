@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "node tests/e2e/run.mjs",
+    "e2e:tokens": "node tests/e2e/tokens.mjs",
     "bench": "node tests/perf/bench.mjs",
     "docs": "node scripts/build-docs.mjs",
     "webhook": "node backend/webhook-server.mjs"

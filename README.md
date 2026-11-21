@@ -60,8 +60,9 @@ Requires Chrome 116+ (side panel API) and Node 20+ to build.
 
 ```
 npm run typecheck     # TypeScript
-npm test              # 158 unit tests (Vitest, fake IndexedDB, jsdom, scripted network)
+npm test              # 212 unit tests (Vitest, fake IndexedDB, jsdom, scripted network)
 npm run build && npm run e2e   # 104 browser checks: the real built extension in Chromium vs a fictional site + fake APIs
+npm run e2e:tokens    # 15 browser checks: Settings, Issue tokens / Re-issue in the Researchers base, sign-in on the assessment (needs the assessment server; ASSESSMENT_URL, default http://localhost:3002; the key is read from ../vier-assessment/.env.local)
 npm run bench         # 20 000 records in the real extension: open, search, sort, change propagation (BENCH_N=50000 for more)
 npm run icons         # re-render the icons from assets/icon.svg (a copy of the website's icon); the PNGs are committed
 npm run docs          # rebuild the Word documentation

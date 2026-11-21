@@ -10,6 +10,7 @@ import { normUrl, rand, sleep, text } from './dom';
 import { detectPeople, type PersonCard } from './detect';
 import { extractPerson, type Extracted } from './extract';
 import { clickNextAndWait, expandList, findNext, findNextButton, findNextUrl, resolveMode } from './paginate';
+import { readOpenedEntry } from './clickDetail';
 import { waitFor } from './dom';
 
 export interface PageIO {
@@ -53,7 +54,9 @@ export async function crawlPage(doc: Document, cfg: ScrapeConfig, state: PageSta
       const key = card.url ? normUrl(card.url) : `${card.name}|${card.facts.email || ''}`; seen.add(key); res.found++; left--;
       io.progress({ phase: `reading ${card.name || card.url}`, found: res.found, url: card.url });
       try {
-        const person = await readCard(card, cfg, base, io);
+        // contact details that appear only after a click: open the entry here (the list stays where it is), then read the card
+        const opened = cfg.clickDetails ? await readOpenedEntry(doc, card, cfg, detect).catch(() => null) : undefined;
+        const person = await readCard(card, cfg, base, io, opened);
         const action = await io.emit(person);
         if (action === 'created') res.saved++; else if (action === 'merged') res.merged++; else if (action === 'duplicate') res.duplicates++; else res.skipped++;
         io.progress({ phase: 'saved', found: res.found, saved: res.saved, skipped: res.skipped + res.duplicates });
@@ -84,8 +87,11 @@ export async function crawlPage(doc: Document, cfg: ScrapeConfig, state: PageSta
   return res;
 }
 
-/** One card (+ its profile page) → a person ready for the database. */
-export async function readCard(card: PersonCard, cfg: ScrapeConfig, base: string, io: PageIO): Promise<ScrapedPerson> {
+/**
+ * One card (+ its profile page, + what opened when its name was clicked) → a person ready for the database.
+ * `opened`: undefined when the option is off; null when it is on but nothing opened; else what the panel showed.
+ */
+export async function readCard(card: PersonCard, cfg: ScrapeConfig, base: string, io: PageIO, opened?: Extracted | null): Promise<ScrapedPerson> {
   const profileUrl = card.url;
   const items = cfg.list.kind === 'items';
   const fromCard = extractPerson(card.root, cfg, { url: base, scope: 'card', nameHint: card.name, kind: cfg.list.kind });
@@ -97,6 +103,11 @@ export async function readCard(card: PersonCard, cfg: ScrapeConfig, base: string
   if (cfg.autoDetect.email) put(fid('email'), card.facts.email?.toLowerCase());
   if (cfg.autoDetect.phone) put(fid('phone'), card.facts.phone);
   let pub: string[] = []; let ids: string[] = []; let error: string | undefined; let pairs = fromCard.pairs;
+  if (opened) {
+    // what the opened panel shows is the richer source (as a profile page is); the name stays the one the list shows
+    for (const [k, val] of Object.entries(opened.values)) if (val && !(k === fid('fullName') && v[k])) v[k] = val;
+    pub = opened.publicationLinks; ids = opened.identifiers; pairs = [...opened.pairs, ...pairs];
+  } else if (opened === null) error = 'the entry did not open when its name was clicked – kept what the list shows';
 
   if (cfg.visitProfiles && profileUrl) {
     let ex: Extracted | null = null;
@@ -113,6 +124,8 @@ export async function readCard(card: PersonCard, cfg: ScrapeConfig, base: string
       pub = ex.publicationLinks; ids = ex.identifiers; pairs = [...ex.pairs, ...pairs];
     } else if (!error) error = 'profile page was empty or not reachable – kept what the directory shows';
   }
+  // a role written as “Sales Consultant at Mitsubishi (4 months)”: the role is the position, the company the institution (people lists)
+  if (!items && v[fid('position')]) { const role = v[fid('position')].match(/^(.+?)\s+at\s+([^(]+?)\s*(?:\(.*)?$/i); if (role) { v[fid('position')] = role[1].trim(); if (cfg.autoDetect.institution && !v[fid('institution')]) v[fid('institution')] = role[2].trim(); } }
   if (profileUrl) v[fid('profileUrl')] = v[fid('profileUrl')] || profileUrl;
   const has = (k: string) => !!v[fid(k)];
   const rich = items ? has('email') || has('phone') || has('website') || has('about') || has('industry') : has('email') || has('position') || has('institution') || has('about');

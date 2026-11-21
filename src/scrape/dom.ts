@@ -2,6 +2,7 @@
 // real page (content script) and in jsdom (unit tests).
 
 export const clean = (s: string | null | undefined) => String(s ?? '').replace(/[ ​]/g, ' ').replace(/\s+/g, ' ').trim();
+const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK = new Set(['ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT', 'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TD', 'TH', 'TR', 'UL', 'BR']);
 
 /** Visible-ish text of an element with line breaks between blocks (innerText does not exist in jsdom, and is slow on big pages). */
@@ -12,7 +13,10 @@ export function text(el: Element | null | undefined): string {
     if (n.nodeType === 3) { out += n.nodeValue; return; }
     if (n.nodeType !== 1) return;
     const e = n as Element; const tag = e.tagName;
-    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE' || tag === 'SVG') return;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') return;
+    // Icons (the verified tick, a search glass …) are inline SVG. Their <title> is an accessibility label, never text of the page. In an HTML
+    // document an SVG element's tagName is lower-case ("svg"), so the check must not depend on the case of the name.
+    if (e.namespaceURI === SVG_NS || tag.toLowerCase() === 'svg') return;
     if (e.getAttribute('hidden') !== null || e.getAttribute('aria-hidden') === 'true') return;
     const block = BLOCK.has(tag); if (block) out += '\n';
     for (const c of Array.from(e.childNodes)) walk(c);

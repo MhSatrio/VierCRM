@@ -128,6 +128,8 @@ export interface ScrapeConfig {
   mappings: FieldMapping[];
   autoDetect: { email: boolean; phone: boolean; name: boolean; position: boolean; institution: boolean; biography: boolean };
   visitProfiles: boolean; returnToDirectory: boolean; renderJsProfiles: boolean;
+  /** click each entry's own name / link, read the panel or dialog that opens (e-mail and phone are often shown only there), close it again */
+  clickDetails?: boolean;
   defaults?: Record<string, string>;              // field id → constant (e.g. Institution for this site)
   /** Google Maps result lists (read from the tab the user opened – no API): how much to open, and whether to look for e-mail on each business's own website */
   maps?: MapsConfig;
@@ -174,7 +176,8 @@ export interface AutomationRun {
 }
 
 // ------------------------------------------------------------------ e-mail
-export interface EmailTemplate { id: string; name: string; subject: string; body: string; createdAt: string; updatedAt: string }
+/** `body` is the plain-text message. With `format: 'html'` the message is `html` instead (merge values are escaped), and `body` is only its fallback. */
+export interface EmailTemplate { id: string; name: string; subject: string; body: string; createdAt: string; updatedAt: string; format?: 'text' | 'html'; html?: string }
 export type EmailEventType = 'sent' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'unsubscribed' | 'spam' | 'blocked' | 'failed';
 export interface EmailLog {
   id: string; recordId: string; tableId: string; to: string; subject: string; provider: 'brevo' | 'gmail' | 'test'; from: string;

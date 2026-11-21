@@ -3,6 +3,7 @@
 import * as DB from '../core/db';
 import * as S from '../core/store';
 import { buildDedupeIndex } from '../core/dedupe';
+import { fid, keyOf } from '../core/defaults';
 import { getSecrets, getSettings } from '../core/settings';
 import type { ScrapeConfig, ScrapeProgress, ScrapedPerson } from '../core/types';
 import type { BgRequest, ContentRequest, TabRequest } from '../shared/messages';
@@ -182,8 +183,9 @@ async function handlePerson(p: ScrapedPerson) {
   if (!run) return { action: 'skipped' as const };
   const r = await S.intakePerson(run.tableId, run.fields, p, run.index, { configId: run.cfg.id });
   if (r.action === 'created') run.progress.saved++; else run.progress.skipped++;
-  run.progress.found++; if (p.status === 'failed') run.progress.errors.push(`${p.profileUrl || 'a card'}: ${p.error || 'nothing readable'}`);
+  run.progress.found++; if (p.status === 'failed' || (run.cfg.clickDetails && p.error)) run.progress.errors.push(`${p.values[fid('fullName')] || p.profileUrl || 'an entry'}: ${p.error || 'nothing readable'}`);
   publish();
+  if (p.values[fid('email')] && !run.fields.some(f => keyOf(f) === 'email') && !run.progress.errors.some(e => e.startsWith('This base has no Email field'))) run.progress.errors.push('This base has no Email field, so scraped e-mail addresses cannot be saved. Use a base made from the Contacts template (＋ Add base → Contacts).');
   if (r.record && (r.action === 'created' || r.action === 'merged')) { try { await (await makeEngine()).fire('scrapingCompleted', r.record.id, p.profileUrl); } catch (e) { console.warn('scrapingCompleted automation failed', e); } }
   return { action: r.action };
 }
@@ -209,6 +211,7 @@ const handlers: Record<string, Handler> = {
   'scrape:progress-lite': (m: Extract<ContentRequest, { type: 'scrape:progress-lite' }>) => { if (run) { Object.assign(run.progress, { phase: m.patch.phase }); publish(); } return { ok: true }; },
   'widget:action': (m: any) => handlers[`scrape:${m.action}`]({}, {} as any),
   'scrape:preview': async (m: Extract<BgRequest, { type: 'scrape:preview' }>) => { await inject(m.tabId); return toTab(m.tabId, { type: 'detect:preview', config: m.config }); },
+  'scrape:clickTest': async (m: Extract<BgRequest, { type: 'scrape:clickTest' }>) => { await inject(m.tabId); return toTab(m.tabId, { type: 'detect:clickTest', config: m.config }); },
   'picker:start': async (m: any) => { await inject(m.tabId); return toTab(m.tabId, { type: 'picker:start' }); },
   'picker:stop': async (m: any) => toTab(m.tabId, { type: 'picker:stop' }).catch(() => ({ ok: true })),
   'picker:result': (m: any) => { chrome.runtime.sendMessage({ type: 'picker:picked', result: m.result }).catch(() => {}); return { ok: true }; },

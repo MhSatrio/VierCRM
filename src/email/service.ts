@@ -6,7 +6,7 @@ import * as DB from '../core/db';
 import * as S from '../core/store';
 import type { CellValue, EmailLog, EmailTemplate, Field, RecordRow } from '../core/types';
 import { computeRecord, cellText, templateLookup } from '../core/values';
-import { renderTemplate, textToHtml } from '../core/template';
+import { escapeHtml, htmlToText, isHtmlDocument, renderTemplate, sanitizeEmailHtml, signatureHtml, signatureText, textToHtml } from '../core/template';
 import { idOf } from '../core/defaults';
 import { getSecrets, getSettings, type Secrets, type Settings } from '../core/settings';
 import type { Fetcher } from '../research/http';
@@ -30,15 +30,33 @@ export async function suppress(email: string) { const s = await getSuppressed();
 export interface Preview { to: string; subject: string; text: string; html: string; missing: string[]; unknown: string[]; usedFallback: string[]; problems: string[] }
 
 /** Exactly what would be sent for this record – used by the preview pane and by sending itself. */
+/**
+ * What is sent: the message (plain text, or an HTML design), then the signature, then the footer with the opt-out line.
+ * A merge value inside an HTML design is escaped, so a name with “&” or “<” stays text.
+ */
 export function renderEmail(tpl: EmailTemplate, fields: Field[], rec: RecordRow, settings: Settings, toFieldId: string | undefined = idOf(fields, 'email')): Preview {
   const { values } = computeRecord(fields, rec); const look = templateLookup(fields, values);
-  const subj = renderTemplate(tpl.subject, look); const body = renderTemplate(tpl.body, look);
-  const text = settings.emailFooter.trim() ? `${body.text}\n\n--\n${settings.emailFooter.trim()}` : body.text;
+  const subj = renderTemplate(tpl.subject, look);
+  // an HTML design: the designed HTML; a plain message that holds a whole HTML document (pasted in) is sent as that document too
+  const htmlSource = tpl.format === 'html' && tpl.html?.trim() ? tpl.html : (tpl.format !== 'html' && isHtmlDocument(tpl.body) ? tpl.body : null);
+  const asHtml = htmlSource !== null;
+  // CSS in a <style> block uses braces, which are not merge fields: such a block is set aside while the fields are filled in, then put back
+  const styleBlocks: string[] = [];
+  const setAside = (h: string) => h.replace(/<style\b[\s\S]*?<\/style\s*>/gi, m => { styleBlocks.push(m); return `\u0001${styleBlocks.length - 1}\u0001`; });
+  const rendered = asHtml ? renderTemplate(setAside(sanitizeEmailHtml(htmlSource!)), name => { const v = look(name); return v === undefined ? undefined : escapeHtml(v); }) : renderTemplate(tpl.body, look);
+  const body = asHtml ? { ...rendered, text: rendered.text.replace(/\u0001(\d+)\u0001/g, (_m, i: string) => styleBlocks[Number(i)]) } : rendered;
+  const bodyText = asHtml ? htmlToText(body.text) : body.text;
+  const bodyHtml = asHtml ? body.text : textToHtml(body.text);
+  const sig = (settings.emailSignature || '').trim(); const footer = settings.emailFooter.trim();
+  const parts = [bodyText]; if (sig) parts.push(signatureText(sig)); if (footer) parts.push(`--\n${footer}`);
+  // signature and footer go inside the document (before </body>) when the message is a whole HTML document
+  const extras = [sig ? `<div style="margin-top:18px">${signatureHtml(sig)}</div>` : '', footer ? `<div style="margin-top:18px;padding-top:10px;border-top:1px solid #d9dee7;font-size:12px;color:#5b6472">${textToHtml(footer)}</div>` : ''].filter(Boolean).join('\n');
+  const html = !extras ? bodyHtml : /<\/body\s*>/i.test(bodyHtml) ? bodyHtml.replace(/<\/body\s*>/i, () => `${extras}\n</body>`) : `${bodyHtml}\n${extras}`;
   const to = toFieldId ? cellText(values[toFieldId]).trim() : '';
   const problems: string[] = [];
   if (!to) problems.push('This contact has no e-mail address.'); else if (!EMAIL_RE.test(to)) problems.push(`“${to}” is not a valid e-mail address.`);
   const unknown = [...new Set([...subj.unknown, ...body.unknown])]; if (unknown.length) problems.push(`The template uses fields this table does not have: ${unknown.join(', ')}.`);
-  return { to, subject: subj.text, text, html: textToHtml(text), missing: [...new Set([...subj.missing, ...body.missing])], unknown, usedFallback: [...new Set([...subj.usedFallback, ...body.usedFallback])], problems };
+  return { to, subject: subj.text, text: parts.join('\n\n'), html, missing: [...new Set([...subj.missing, ...body.missing])], unknown, usedFallback: [...new Set([...subj.usedFallback, ...body.usedFallback])], problems };
 }
 
 export type SendOutcome = { status: 'sent' | 'test' | 'skipped' | 'error'; message: string; log?: EmailLog; preview?: Preview };
@@ -57,6 +75,8 @@ export async function sendRecordEmail(deps: EmailDeps, a: SendArgs): Promise<Sen
   const preview = renderEmail(tpl, fields, rec, settings, a.toFieldId || idOf(fields, 'email'));
   if (a.toOverride) preview.to = a.toOverride;
   if (preview.problems.length && !a.toOverride) return { status: 'skipped', message: preview.problems[0], preview };
+  const replyTo = (settings.replyTo || '').trim() || undefined;
+  if (replyTo && !EMAIL_RE.test(replyTo)) return { status: 'skipped', message: `The Reply-To address in Settings → E-mail (“${replyTo}”) is not a valid e-mail address.`, preview };
   const providerId = a.providerId || settings.defaultProvider; const from = { email: a.senderEmail || settings.defaultSender, name: settings.senderName || undefined };
   const now = deps.now(); const base: Omit<EmailLog, 'status' | 'provider'> = { id: S.uid('mail'), recordId: rec.id, tableId: rec.tableId, to: preview.to, subject: preview.subject, from: from.email, sentAt: now.toISOString(), templateId: tpl.id, automationId: a.automationId, events: [] };
 
@@ -80,11 +100,11 @@ export async function sendRecordEmail(deps: EmailDeps, a: SendArgs): Promise<Sen
     if (providerId === 'brevo') {
       const bd = { fetch: deps.fetch, apiKey: secrets.brevoApiKey, base: settings.apiBases.brevo };
       const ck = verifiedCache.get(from.email); if (!ck || now.getTime() - ck > 600000) { const v = await verifySender(bd, from.email); if (!v.ok) return { status: 'error', message: v.message, preview }; verifiedCache.set(from.email, now.getTime()); }
-      messageId = (await sendBrevo(bd, { from, to: preview.to, subject: preview.subject, text: preview.text, html: preview.html, tags: ['viercrm'] })).messageId;
+      messageId = (await sendBrevo(bd, { from, to: preview.to, subject: preview.subject, text: preview.text, html: preview.html, replyTo, tags: ['viercrm'] })).messageId;
     } else {
       const accts = secrets.gmail?.accounts || []; const acct = accts.find(x => x.email === a.gmailAccount) || accts.find(x => canSendAs(x, from.email).ok);
       if (!acct) return { status: 'error', message: `No connected Gmail account can send as ${from.email}. Connect it in Settings → E-mail.`, preview };
-      messageId = (await sendGmail({ fetch: deps.fetch, now: () => now.getTime(), base: settings.apiBases.gmail }, acct, { from, to: preview.to, subject: preview.subject, text: preview.text, html: preview.html })).messageId;
+      messageId = (await sendGmail({ fetch: deps.fetch, now: () => now.getTime(), base: settings.apiBases.gmail }, acct, { from, to: preview.to, subject: preview.subject, text: preview.text, html: preview.html, replyTo })).messageId;
     }
     const log: EmailLog = { ...base, provider: providerId, status: 'sent', messageId, events: [{ type: 'sent', at: base.sentAt }] };
     await DB.put('emailLog', log);

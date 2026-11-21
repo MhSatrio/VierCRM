@@ -136,13 +136,73 @@ export function findNextUrl(doc: Document, base: string, cfg: Pick<PaginationCon
   return findNext(doc, base, cfg, pageIndex, step).url;
 }
 
-/** A Next control that is a button (single-page apps) rather than a link. */
+const CURRENT_CLASS = /(^|[\s_-])(active|current|selected|is-active|is-current)([\s_-]|$)/i;
+const isCurrentMark = (el: Element) => {
+  for (let e: Element | null = el, i = 0; e && i < 3; e = e.parentElement, i++) {
+    const ac = e.getAttribute('aria-current'); if (ac && ac !== 'false') return true;
+    if (e.getAttribute('aria-selected') === 'true' || CURRENT_CLASS.test(String(e.getAttribute('class') || ''))) return true;
+  }
+  return false;
+};
+const isClickable = (el: Element, win: Window | null) => {
+  if (el.closest('a[href], button, [role="button"], [onclick]')) return true;
+  return !!win && win.getComputedStyle(el).cursor === 'pointer';
+};
+const pageNumberOf = (el: Element) => Number(clean(text(el)));
+
+/**
+ * A numbered pager whose page numbers are NOT links (buttons, spans, list items driven by a script): the control of the page after the
+ * current one. It needs a run of consecutive numbers, so "10 · 20 · 50" is not a pager. The current page is the one marked as current
+ * (aria-current, active, selected …), else the only number that is not clickable, else the one entry whose classes differ from the rest.
+ * When none of that tells, nothing is guessed. A numbered LINK is left to findNext, which follows its address.
+ */
+export function findNumberedClickNext(doc: Document): { el: HTMLElement; current: number } | null {
+  const win = doc.defaultView;
+  const leaves = qsa<HTMLElement>(doc, 'a, button, span, li, div, strong, b, [role="button"]').filter(e => {
+    if (e.getElementsByTagName('*').length > 3) return false;                             // a page number has at most a couple of wrappers – cheap test first
+    const raw = (e.textContent || '').trim(); if (raw.length > 4 || !/^\d{1,4}$/.test(raw)) return false;
+    return !Array.from(e.children).some(c => /\d/.test(c.textContent || ''));            // the innermost element only (a <span> inside a <button>)
+  }).filter(e => /^\d{1,4}$/.test(clean(text(e))) && isVisible(e));
+  if (leaves.length < 2) return null;
+  // the group: the widest ancestor (within 5 levels) that holds these numbers
+  const ancestors = new Set<Element>();
+  for (const l of leaves) { let a: Element | null = l.parentElement; for (let i = 0; a && i < 5; i++, a = a.parentElement) ancestors.add(a); }
+  let group: HTMLElement[] = [];
+  for (const a of ancestors) { const g = leaves.filter(l => a.contains(l)); if (g.length > group.length) group = g; }
+  const nums = [...new Set(group.map(pageNumberOf))].sort((x, y) => x - y);
+  if (nums.length < 2 || !nums.some((n, i) => i > 0 && n === nums[i - 1] + 1)) return null;
+  // which page is shown
+  let cur: number | null = null;
+  const marked = group.filter(isCurrentMark);
+  if (marked.length === 1) cur = pageNumberOf(marked[0]);
+  else {
+    const plain = group.filter(l => !isClickable(l, win));
+    if (plain.length === 1) cur = pageNumberOf(plain[0]);
+    else if (group.length >= 3) {
+      const sig = (l: Element) => `${l.className}|${l.parentElement?.className ?? ''}`;
+      const counts = new Map<string, number>(); for (const l of group) counts.set(sig(l), (counts.get(sig(l)) || 0) + 1);
+      const odd = group.filter(l => counts.get(sig(l)) === 1);
+      if (odd.length === 1 && counts.size === 2) cur = pageNumberOf(odd[0]);
+    }
+  }
+  if (cur == null || !nums.includes(cur)) return null;
+  const next = group.find(l => pageNumberOf(l) === cur! + 1);
+  if (!next) return null;
+  const real = next.closest<HTMLElement>('a[href]');
+  if (real && real.getAttribute('href') && !/^(#|javascript:)/i.test(real.getAttribute('href')!)) return null;   // a real address: findNext follows it
+  const el = next.closest<HTMLElement>('a, button, [role="button"]') ?? next;
+  return enabled(el) ? { el, current: cur } : null;
+}
+
+/** A Next control that is a button or a link without an address (single-page apps, script links) rather than a link to another page. */
 export function findNextButton(doc: Document, cfg: Pick<PaginationConfig, 'nextSelector'>): HTMLElement | null {
   if (cfg.nextSelector) { const hit = qs<HTMLElement>(doc, cfg.nextSelector); const el = hit?.closest<HTMLElement>('a, button, [role="button"]') ?? hit; if (el && enabled(el) && isVisible(el)) return el; }
-  return qsa<HTMLElement>(doc, 'button, [role="button"], li.next > *, .pagination-next, a[href="#"]').filter(isVisible).find(b => {
+  const byLabel = qsa<HTMLElement>(doc, 'a, button, [role="button"], li.next > *, .pagination-next').find(b => {
+    if ((b.textContent || '').length > 80 && !b.getAttribute('aria-label')) return false;   // a Next control is a short label; skip whole cards / rows quickly
     const label = clean(`${b.getAttribute('aria-label') || ''} ${text(b)}`);
-    return (NEXT_TEXT.test(clean(text(b))) || /^(next|next page|volgende|suivant|weiter|selanjutnya)\b/i.test(label) || /\bnext\b/i.test(b.getAttribute('aria-label') || '')) && enabled(b);
-  }) ?? null;
+    return (NEXT_TEXT.test(clean(text(b))) || /^(next|next page|volgende|suivant|weiter|selanjutnya)\b/i.test(label) || /\bnext\b/i.test(b.getAttribute('aria-label') || '')) && enabled(b) && isVisible(b);
+  });
+  return byLabel ?? findNumberedClickNext(doc)?.el ?? null;
 }
 
 export function findLoadMore(doc: Document, cfg: Pick<PaginationConfig, 'loadMoreSelector'>): HTMLElement | null {

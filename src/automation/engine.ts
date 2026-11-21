@@ -9,11 +9,10 @@
 import * as DB from '../core/db';
 import * as S from '../core/store';
 import type { Action, Automation, AutomationRun, CellValue, Field, PendingJob, RecordMeta, RecordRow, RunStep, Trigger, View } from '../core/types';
-import { recordMatches } from '../core/filters';
+import { emptyGroup, recordMatches } from '../core/filters';
 import { computeRecord, cellText, coerceForField, isEmptyValue, templateLookup, byLowerName } from '../core/values';
 import { renderTemplate } from '../core/template';
 import { evaluateFormula } from '../core/formula';
-import { emptyGroup } from '../core/filters';
 import { fid } from '../core/defaults';
 import { runLookups } from '../research/lookup';
 import type { Ctx } from '../research/http';
@@ -159,6 +158,8 @@ export class Engine {
     if (depth > MAX_DEPTH) return finish({ ...base, status: 'error', error: `Stopped: automations were calling each other more than ${MAX_DEPTH} levels deep.` });
 
     const rec = await S.getRecord(recordId); if (!rec) return null;
+    // an automation only ever works on the records of its own base: a record from another base is refused (nothing changed, nothing sent)
+    if (rec.tableId !== a.tableId) return finish({ ...base, status: 'error', error: `Refused: this record is in another base. “${a.name}” only works on its own base, so nothing was changed and nothing was sent.` });
     const fields = await S.listFields(rec.tableId);
     if (!o.startIndex && !recordMatches(a.conditions, fields, rec)) { if (!o.logSkipped) return null; return finish({ ...base, status: 'skipped', error: 'The conditions are not met for this record.' }); }
 
@@ -174,6 +175,8 @@ export class Engine {
         step(action, r.status, r.message);
         if (r.status === 'error') { any.error = true; break; }
         if (r.status === 'skipped') any.skipped = true; if (r.status === 'test') any.test = true;
+        // an e-mail that was NOT sent (skipped) stops this record here: a later “set status to sent” must not claim a send that never happened
+        if (r.status === 'skipped' && action.type === 'sendEmail') break;
         if (r.wait) {
           const job: PendingJob = { id: S.uid('pend'), runAt: this.deps.now().getTime() + r.wait * 1000, kind: 'continueRun', payload: { automationId: a.id, recordId, fromActionIndex: i + 1, chain: chain, depth, trigger, testMode } };
           await DB.put('pending', job); base.status = 'waiting'; break;
@@ -245,4 +248,11 @@ export class Engine {
 export function describeTrigger(t: Trigger, fields: Field[], views: View[]): string {
   const f = t.fieldId ? nameOf(fields, t.fieldId) : '…'; const v = views.find(x => x.id === t.viewId)?.name ?? '…';
   return ({ recordCreated: 'When a record is created', recordUpdated: 'When a record is updated', fieldBecomesNonEmpty: `When “${f}” becomes non-empty`, fieldBecomesEmpty: `When “${f}” becomes empty`, fieldChanges: `When “${f}” changes`, recordEntersView: `When a record enters “${v}”`, scrapingCompleted: 'When scraping a record completes', publicationFound: 'When a publication is found', scheduled: `Every ${t.everyMinutes || 60} minutes`, manual: 'When you run it manually' } as Record<string, string>)[t.type];
+}
+
+/** Moves an automation to another base. Its conditions, its trigger field and its field-based actions belong to the old base, so they are
+ *  cleared and have to be chosen again. The e-mail template and the other automation it runs stay as they are. */
+export function moveAutomationToBase(a: Automation, tableId: string): Automation {
+  const actions = a.actions.map(x => ({ ...x, fieldId: undefined, toFieldId: undefined, statusFieldId: undefined, cells: undefined, tableId: undefined }));
+  return { ...a, tableId, conditions: emptyGroup(), actions, trigger: { type: a.trigger.type, everyMinutes: a.trigger.everyMinutes } };
 }

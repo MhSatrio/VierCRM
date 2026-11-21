@@ -9,6 +9,7 @@ export type BgRequest =
   | { type: 'scrape:start'; tabId: number; config: ScrapeConfig; tableId: string }
   | { type: 'scrape:pause' } | { type: 'scrape:resume' } | { type: 'scrape:stop' } | { type: 'scrape:status' }
   | { type: 'scrape:preview'; tabId: number; config: ScrapeConfig }
+  | { type: 'scrape:clickTest'; tabId: number; config: ScrapeConfig }
   | { type: 'picker:start'; tabId: number } | { type: 'picker:stop'; tabId: number }
   | { type: 'record:changed'; change: any }
   | { type: 'lookup:run'; recordId: string; fieldIds?: string[]; force?: boolean; choice?: { fieldId: string; candidate: any } }
@@ -29,6 +30,7 @@ export type TabRequest =
   | { type: 'crawl:extractHere'; config: ScrapeConfig }
   | { type: 'detect:preview'; config: ScrapeConfig }
   | { type: 'detect:first' }
+  | { type: 'detect:clickTest'; config: ScrapeConfig }
   | { type: 'picker:start' } | { type: 'picker:stop' }
   | { type: 'widget:progress'; progress: ScrapeProgress };
 

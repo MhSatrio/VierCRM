@@ -11,7 +11,7 @@
   "permissions": ["sidePanel", "storage", "unlimitedStorage", "scripting", "activeTab", "tabs", "alarms", "identity", "downloads"],
   "host_permissions": [
     "https://api.openalex.org/*", "https://api.crossref.org/*", "https://api.semanticscholar.org/*", "https://eutils.ncbi.nlm.nih.gov/*",
-    "https://api.unpaywall.org/*", "https://www.ebi.ac.uk/*", "https://api.brevo.com/*", "https://gmail.googleapis.com/*", "https://www.googleapis.com/*"
+    "https://api.unpaywall.org/*", "https://www.ebi.ac.uk/*", "https://api.brevo.com/*", "https://gmail.googleapis.com/*", "https://www.googleapis.com/*", "http://localhost:3000/*", "http://localhost:3001/*", "http://localhost:3009/*", "https://test.vierapparatus.com/*"
   ],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "web_accessible_resources": [],

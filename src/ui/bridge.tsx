@@ -33,7 +33,8 @@ export function useTable(tableId: string | undefined): TableData {
     if (alive.current) setState({ table, fields, views, records, loading: false, partial: false });
   }, [tableId]);
   const reloadMeta = useCallback(async () => { if (!tableId) return; const [table, fields, views] = await Promise.all([S.getTable(tableId), S.listFields(tableId), S.listViews(tableId)]); if (alive.current) setState(p => ({ ...p, table, fields, views })); }, [tableId]);
-  useEffect(() => { loadedOnce.current = false; void reload(); }, [reload]);
+  // another base was chosen: the old base's fields, views and records are dropped at once, so nothing can be run or sent from them
+  useEffect(() => { loadedOnce.current = false; setState({ fields: [], views: [], records: [], loading: true }); void reload(); }, [reload]);
   // patch records in place: unchanged records keep their identity, so cached row values and search text stay valid
   const patch = useCallback((upserts: RecordRow[], removed: string[] = []) => {
     if (!alive.current) return;

@@ -5,6 +5,7 @@ import type { RowView } from '../../core/filters';
 import { cellText, isAttachment } from '../../core/values';
 import { AttachmentCell } from './attachments';
 import { idOf } from '../../core/defaults';
+import * as S from '../../core/store';
 
 const ROW_H = 34; const SEL_W = 38; const OVERSCAN = 8;
 const STATUS_CLASS: Record<string, string> = { Scraped: 'good', Partial: 'warn', Failed: 'bad', Found: 'good', 'PDF attached': 'good', 'Needs match': 'warn', 'Not found': 'bad', 'Full text unavailable': 'warn', Sent: '', Delivered: 'good', Opened: 'good', Clicked: 'good', Bounced: 'bad', Unsubscribed: 'bad', Contacted: 'warn', Replied: 'good', 'Do not contact': 'bad', 'Not interested': 'bad' };
@@ -36,7 +37,7 @@ function Editor({ f, value, onCommit, onCancel }: { f: Field; value: CellValue; 
   const keys = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); done(); } if (e.key === 'Escape') onCancel(); };
   const choices = f.options?.choices;
   if (choices?.length && ['singleSelect', 'scrapingStatus', 'emailStatus', 'publicationStatus'].includes(f.type)) return <select ref={ref} value={v} onChange={e => { setV(e.target.value); done(e.target.value); }} onBlur={onCancel} onKeyDown={keys}><option value="">—</option>{choices.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select>;
-  return <input ref={ref} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} value={v} onChange={e => setV(e.target.value)} onBlur={() => done()} onKeyDown={keys} />;
+  return <input ref={ref} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : f.type === 'email' ? 'email' : 'text'} autoComplete="off" value={v} onChange={e => setV(e.target.value)} onBlur={() => done()} onKeyDown={keys} />;
 }
 
 export interface GridProps {
@@ -52,7 +53,16 @@ export function Grid({ fields, rows, selected, onSelect, sort, onSort, onEdit, o
   const [editing, setEditing] = useState<{ rec: string; field: string } | null>(null);
   const [anchor, setAnchor] = useState<number | null>(null);
   useEffect(() => { const el = wrap.current; if (!el) return; const ro = new ResizeObserver(() => setScroll(s => ({ ...s, h: el.clientHeight }))); ro.observe(el); setScroll(s => ({ ...s, h: el.clientHeight })); return () => ro.disconnect(); }, []);
-  const widths = useMemo(() => fields.map(f => f.width ?? 160), [fields]); const total = SEL_W + widths.reduce((a, b) => a + b, 0);
+  // column widths: the field's saved width, or the width while it is being dragged
+  const [over, setOver] = useState<Record<string, number>>({});
+  const widths = useMemo(() => fields.map(f => over[f.id] ?? f.width ?? 160), [fields, over]);
+  const startResize = (e: React.PointerEvent, fieldId: string, startW: number) => {
+    e.preventDefault(); e.stopPropagation();
+    const x0 = e.clientX; let last = startW;
+    const move = (ev: PointerEvent) => { last = Math.min(800, Math.max(60, startW + ev.clientX - x0)); setOver(p => ({ ...p, [fieldId]: last })); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); void S.updateField(fieldId, { width: last }).catch(() => {}); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  }; const total = SEL_W + widths.reduce((a, b) => a + b, 0);
   const first = Math.max(0, Math.floor(scroll.top / ROW_H) - OVERSCAN); const last = Math.min(rows.length, Math.ceil((scroll.top + scroll.h) / ROW_H) + OVERSCAN);
   const allSelected = rows.length > 0 && selected.size >= rows.length;
   const toggle = (i: number, e: React.MouseEvent | React.ChangeEvent) => {
@@ -64,7 +74,7 @@ export function Grid({ fields, rows, selected, onSelect, sort, onSort, onEdit, o
     <div className="grid-wrap" ref={wrap} onScroll={e => setScroll(s => ({ ...s, top: (e.target as HTMLElement).scrollTop }))} role="grid" aria-rowcount={rows.length}>
       <div className="g-head" style={{ width: total }} role="row">
         <div className="g-sel" style={{ height: 34 }}><input type="checkbox" aria-label="Select all rows in this view" checked={allSelected} onChange={e => onSelect(e.target.checked ? new Set(rows.map(r => r.rec.id)) : new Set())} /></div>
-        {fields.map((f, i) => { const s = sort.find(x => x.fieldId === f.id); return <div key={f.id} className="g-hc" role="columnheader" style={{ width: widths[i] }} title={f.description || f.name} onClick={() => onSort(f.id)}>{f.name}{f.lookup ? ' ✦' : ''}{s ? (s.dir === 'asc' ? ' ▲' : ' ▼') : ''}</div>; })}
+        {fields.map((f, i) => { const s = sort.find(x => x.fieldId === f.id); return <div key={f.id} className="g-hc" role="columnheader" style={{ width: widths[i], position: 'relative' }} title={f.description || f.name} onClick={() => onSort(f.id)}>{f.name}{f.lookup ? ' ✦' : ''}{s ? (s.dir === 'asc' ? ' ▲' : ' ▼') : ''}<span className="g-rz" title="Drag to make this column wider or narrower" onPointerDown={e => startResize(e, f.id, widths[i])} onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 8, cursor: 'col-resize', zIndex: 2 }} /></div>; })}
       </div>
       <div style={{ height: rows.length * ROW_H, width: total, position: 'relative' }}>
         {rows.slice(first, last).map((r, k) => {
