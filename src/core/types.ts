@@ -59,6 +59,8 @@ export interface Publication {
 export interface MatchCandidate { id: string; name: string; institution?: string; worksCount?: number; topics?: string[]; orcid?: string; confidence: number; reasons: string[]; source: SourceId; url?: string; /** publication-based sources (Crossref, PubMed, Scholar) offer the work itself as the candidate */ publication?: Publication }
 
 export interface RecordMeta {
+  /** identities this record had in other Vier apps (the externalId of an imported package record): a second import of the same package skips it */
+  external?: string[];
   publications?: Record<string, Publication>;                       // by lookup field id
   pending?: Record<string, { candidates: MatchCandidate[]; at: string }>;   // ambiguous author matches waiting for the user
   lookupErrors?: Record<string, string>;

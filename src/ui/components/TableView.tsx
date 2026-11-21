@@ -11,6 +11,7 @@ import { findNameField, issueTokensForRecords } from '../../assessment/issuer';
 import { getSecrets, getSettings } from '../../core/settings';
 import { Confirm, Field_, Modal, download, ensureHostAccess, onRuntime, send, useTable, useToast } from '../bridge';
 import { copyRange, parseTsv, planPaste, type CellRange, type PastePlan } from '../../core/clipboard';
+import { PackageImportModal } from './PackageImport';
 import { Grid } from './Grid';
 import { FilterBuilder } from './FilterBuilder';
 import { FieldManager } from './FieldManager';
@@ -42,6 +43,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
   const { fields, views, records } = data;
   const [viewId, setViewId] = useState<string>(''); const [search, setSearch] = useState(''); const [pop, setPop] = useState<'' | 'filter' | 'sort'>('');
   const [selected, setSelected] = useState<Set<string>>(new Set()); const [open, setOpen] = useState<string | null>(null); const [fm, setFm] = useState(false); const [imp, setImp] = useState(false);
+  const [pkgOpen, setPkgOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false); const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [ovr, setOvr] = useState<Record<string, Partial<View>>>({});          // edits apply at once; saving happens in the background
   const baseView = views.find(v => v.id === viewId) ?? views[0];
@@ -120,7 +122,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
         <button onClick={() => setFm(true)}>☰ Fields</button>
         <input type="search" placeholder="Search…" aria-label="Search records" value={search} onChange={e => setSearch(e.target.value)} />
         <span className="muted small">{rows.length.toLocaleString()} shown</span>
-        <span className="right row"><button onClick={() => setImp(true)}>Import CSV</button><button onClick={() => exportCsv(false)}>Export CSV</button>
+        <span className="right row"><button onClick={() => setImp(true)}>Import CSV</button><button onClick={() => setPkgOpen(true)} title="Import a file that another Vier app saved for VierCRM (for example Job Search)">Import package</button><button onClick={() => exportCsv(false)}>Export CSV</button>
           {hasSearch && <button onClick={() => research(rows.map(r => r.rec.id).slice(0, 500))} disabled={!!progress} title="Find the latest publication (and everything that depends on it) for every record in this view">✦ Research this view</button>}
           <button className="primary" onClick={newRecord}>+ Record</button>
           <span className="row" style={{ gap: 2 }}><button className="ghost sm" onClick={renameView} title="Rename view">Rename</button><button className="ghost sm" onClick={dupView}>Duplicate</button><button className="ghost sm" onClick={delView} disabled={view?.builtin && false}>Delete view</button></span></span>
@@ -133,6 +135,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
       {open && <RecordPanel recordId={open} fields={fields} onClose={() => setOpen(null)} onChanged={() => void data.refreshOne(open)} />}
       {fm && <FieldManager tableId={tableId} fields={fields} sample={sample} onClose={() => setFm(false)} onChanged={() => void data.reloadMeta()} />}
       {imp && <ImportModal tableId={tableId} onClose={() => setImp(false)} onDone={() => void data.reload()} />}
+      {pkgOpen && <PackageImportModal tableId={tableId} onClose={() => setPkgOpen(false)} onDone={() => void data.reload()} />}
       {confirmDel && <Confirm danger confirmLabel={`Delete ${selected.size}`} message={`Delete ${selected.size.toLocaleString()} record(s)? You can undo it right after, or later in Settings → Recently deleted.`} onNo={() => setConfirmDel(false)} onYes={async () => { setConfirmDel(false); const ids = [...selected]; const kept = await S.deleteRecords(ids); data.remove(ids); setSelected(new Set()); toast(`Deleted ${ids.length.toLocaleString()}`, 'good', kept.length ? { label: 'Undo', run: async () => { try { let n = 0; for (const k of kept) n += await S.restoreTrash(k); await data.reload(); toast(`Restored ${n.toLocaleString()}`, 'good'); } catch (e: any) { toast(e.message, 'bad'); } } } : undefined); }} />}
     </div>
   );

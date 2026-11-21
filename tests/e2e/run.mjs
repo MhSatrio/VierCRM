@@ -422,6 +422,22 @@ try {
   }
   check('no critical accessibility violation (axe, WCAG 2 A/AA) on the dashboard, a base grid, settings, e-mail, automations and research', a11yBad.length === 0, a11yBad.join('; '));
 
+  step('Import a Vier package (written by another Vier app)');
+  await app.goto(`chrome-extension://${extId}/app.html?e2e#/base/tbl_contacts`); await app.waitForSelector('h1, .tv-views', { timeout: 15000 }); await sleep(600);
+  const pkgBefore = await ev(async () => (await window.__vier.S.listRecords('tbl_contacts')).length);
+  await app.getByRole('button', { name: 'Import package' }).click();
+  await app.locator('input[aria-label="Vier package file"]').setInputFiles(path.join(root, 'samples/job-search-sample.vierpkg.json'));
+  await app.getByText(/2 record\(s\) from/).waitFor({ timeout: 10000 });
+  check('the package is shown with where each field goes: matched by meaning, by name, or as a new field', /by meaning/.test(await app.locator('.modal, [role=dialog]').first().innerText().catch(() => '')) || /by meaning/.test(await app.locator('body').innerText()));
+  await app.getByRole('button', { name: /^Import 2 record/ }).click(); await sleep(1500);
+  const pkgAfter = await ev(async () => { const S = window.__vier.S; const recs = await S.listRecords('tbl_contacts'); return { n: recs.length, ext: recs.flatMap(r => r.meta?.external ?? []) }; });
+  check('the two vacancies were imported as records with their identity kept', pkgAfter.n === pkgBefore + 2 && pkgAfter.ext.includes('jobsearch:fixture-001') && pkgAfter.ext.includes('jobsearch:fixture-002'), JSON.stringify(pkgAfter));
+  await app.getByRole('button', { name: 'Import package' }).click();
+  await app.locator('input[aria-label="Vier package file"]').setInputFiles(path.join(root, 'samples/job-search-sample.vierpkg.json'));
+  await app.getByText(/already imported before/).waitFor({ timeout: 10000 });
+  check('importing the same package again says they are already imported and offers nothing to import', await app.getByRole('button', { name: /^Import 0 record/ }).isDisabled());
+  await app.keyboard.press('Escape'); await app.getByRole('button', { name: 'Cancel' }).click().catch(() => {});
+
   step('Keys are encrypted in the extension storage');
   const stored = await app.evaluate(() => new Promise(r => chrome.storage.local.get(null, r)));
   check('the key the test wrote readable was migrated: the storage now holds an encrypted envelope and no readable key', !('secrets' in stored) && stored.secretsV1 && stored.secretsV1.v === 1 && !JSON.stringify(stored).includes('test-key'), JSON.stringify(Object.keys(stored)));

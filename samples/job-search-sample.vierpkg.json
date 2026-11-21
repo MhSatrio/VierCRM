@@ -1,0 +1,52 @@
+{
+  "format": "vierpkg",
+  "version": 1,
+  "type": "records",
+  "source": { "app": "job-search", "version": "1.0.0", "exportedAt": "2026-11-22T10:00:00.000Z" },
+  "table": {
+    "name": "Vacancies",
+    "fields": [
+      { "name": "Job title", "type": "text", "key": "position" },
+      { "name": "Company", "type": "text", "key": "institution" },
+      { "name": "Company website", "type": "url", "key": "website" },
+      { "name": "Country", "type": "text" },
+      { "name": "Remote status", "type": "singleSelect" },
+      { "name": "Compatibility score", "type": "number" },
+      { "name": "Contact email", "type": "email", "key": "email" },
+      { "name": "Skills", "type": "multiSelect" },
+      { "name": "Shortlisted", "type": "checkbox" },
+      { "name": "Found on", "type": "date" }
+    ]
+  },
+  "records": [
+    {
+      "externalId": "jobsearch:fixture-001",
+      "sourceUrl": "https://jobs.example.test/listing/001",
+      "values": {
+        "Job title": "Laboratory technician",
+        "Company": "Fictional Marine Institute",
+        "Company website": "https://marine.example.test",
+        "Country": "Japan",
+        "Remote status": "onsite",
+        "Compatibility score": 72,
+        "Contact email": "hr@marine.example.test",
+        "Skills": ["PCR", "microscopy", "data entry"],
+        "Shortlisted": true,
+        "Found on": "2026-11-20"
+      }
+    },
+    {
+      "externalId": "jobsearch:fixture-002",
+      "sourceUrl": "https://jobs.example.test/listing/002",
+      "values": {
+        "Job title": "Operations coordinator",
+        "Company": "Example Logistics GmbH",
+        "Country": "Germany",
+        "Remote status": "hybrid",
+        "Compatibility score": 55,
+        "Skills": ["scheduling"],
+        "Shortlisted": false
+      }
+    }
+  ]
+}
