@@ -185,4 +185,4 @@ export interface EmailLog {
   events: { type: EmailEventType; at: string }[]; opened?: boolean; clicked?: boolean; bounced?: boolean; unsubscribed?: boolean;
 }
 
-export interface PendingJob { id: string; runAt: number; kind: 'continueRun'; payload: { automationId: string; recordId: string; fromActionIndex: number; chain: string[]; depth: number; trigger: string; testMode: boolean }; }
+export interface PendingJob { id: string; runAt: number; /** while a continuation runs: until when it belongs to that run */ leaseUntil?: number; /** how many times a continuation was started */ attempts?: number; kind: 'continueRun'; payload: { automationId: string; recordId: string; fromActionIndex: number; chain: string[]; depth: number; trigger: string; testMode: boolean }; }

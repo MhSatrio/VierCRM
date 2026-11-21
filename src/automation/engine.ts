@@ -19,6 +19,9 @@ import type { Ctx } from '../research/http';
 import { sendRecordEmail, type EmailDeps } from '../email/service';
 
 export const MAX_DEPTH = 4;
+/** A continuation after a Wait is leased for this long while it runs; an interrupted one is retried after it. */
+export const PENDING_LEASE_MS = 5 * 60_000;
+export const PENDING_MAX_ATTEMPTS = 3;
 export interface EngineDeps { research: Ctx; email: EmailDeps; now: () => Date }
 
 type Origin = NonNullable<RecordMeta['origin']>;
@@ -120,13 +123,26 @@ export class Engine {
     return out;
   }
 
-  /** Continue runs that were paused by a Wait action. */
+  /**
+   * Continue runs that were paused by a Wait action.
+   * The job is leased, not deleted, while it runs and removed only after the continuation has finished: if the service worker is
+   * stopped in between, the job comes back after the lease and is tried again (at most PENDING_MAX_ATTEMPTS times). A repeat cannot
+   * send a second e-mail, because the e-mail service refuses the same template to the same record.
+   */
   async processPending(): Promise<AutomationRun[]> {
     const now = this.deps.now().getTime(); const out: AutomationRun[] = [];
-    for (const job of (await DB.all<PendingJob>('pending')).filter(j => j.runAt <= now)) {
-      await DB.del('pending', job.id);
-      const a = await getAutomation(job.payload.automationId); if (!a || !a.enabled) continue;
+    for (const job of (await DB.all<PendingJob>('pending')).filter(j => j.runAt <= now && !(j.leaseUntil && j.leaseUntil > now))) {
+      const attempts = (job.attempts ?? 0) + 1;
+      const a = await getAutomation(job.payload.automationId);
+      if (!a || !a.enabled) { await DB.del('pending', job.id); continue; }
+      if (attempts > PENDING_MAX_ATTEMPTS) {
+        await DB.del('pending', job.id);
+        await DB.put('runs', { id: S.uid('run'), automationId: a.id, automationName: a.name, recordId: job.payload.recordId, tableId: a.tableId, at: this.deps.now().toISOString(), status: 'error', trigger: `${job.payload.trigger} (after wait)`, steps: [], chain: job.payload.chain, depth: job.payload.depth, error: `Gave up continuing after the wait: it did not finish in ${PENDING_MAX_ATTEMPTS} attempts.` } satisfies AutomationRun);
+        continue;
+      }
+      await DB.put('pending', { ...job, attempts, leaseUntil: now + PENDING_LEASE_MS });
       const run = await this.execute(a, job.payload.recordId, `${job.payload.trigger} (after wait)`, { chain: job.payload.chain.filter(c => c !== a.id), depth: Math.max(0, job.payload.depth - 1), startIndex: job.payload.fromActionIndex, testMode: job.payload.testMode });
+      await DB.del('pending', job.id);
       if (run) out.push(run);
     }
     return out;

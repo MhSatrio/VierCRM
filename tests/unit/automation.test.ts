@@ -105,6 +105,22 @@ describe('loop and repeat prevention', () => {
     const bad = await mkAuto({ trigger: { type: 'manual' }, actions: [act('updateField', { fieldId: 'gone', value: 'x' })] }); const [fail] = await engine.runManual(bad.id, [r.id]); expect(fail.status).toBe('error');
     await saveAutomation({ ...bad, actions: [act('updateField', { fieldId: fid('notes'), value: 'fixed' })] }); const again = await engine.retryRun(fail.id); expect(again!.status).toBe('ok'); expect(again!.retryOf).toBe(fail.id);
   });
+  it('a continuation after Wait survives an interruption: it stays queued while leased, comes back after the lease, and is dropped with an error run after 3 attempts', async () => {
+    const a = await mkAuto({ trigger: { type: 'manual' }, actions: [act('wait', { seconds: 10 }), act('updateField', { fieldId: fid('phone'), value: 'after' })] });
+    const r = await rec({ [fid('fullName')]: 'Lease' }); await engine.runManual(a.id, [r.id]);
+    const [job] = await DB.all<import('../../src/core/types').PendingJob>('pending'); expect(job).toBeTruthy();
+    // an interrupted worker: the job was leased (attempt 1) but never finished
+    now = new Date(now.getTime() + 11_000); await DB.put('pending', { ...job, attempts: 1, leaseUntil: now.getTime() + 300_000 });
+    expect(await engine.processPending()).toHaveLength(0);                                                   // still leased: not started a second time
+    expect((await DB.all('pending'))).toHaveLength(1); expect((await S.getRecord(r.id))!.cells[fid('phone')]).toBeUndefined();
+    now = new Date(now.getTime() + 301_000);                                                                   // the lease ran out
+    const cont = await engine.processPending(); expect(cont).toHaveLength(1); expect((await S.getRecord(r.id))!.cells[fid('phone')]).toBe('after');
+    expect(await DB.all('pending')).toHaveLength(0);                                                           // removed only after it finished
+    // a job that never finishes is given up after 3 attempts, with a visible error run
+    await DB.put('pending', { ...job, id: 'pend_stuck', attempts: 3, leaseUntil: 0, runAt: 0 });
+    expect(await engine.processPending()).toHaveLength(0); expect(await DB.all('pending')).toHaveLength(0);
+    expect((await listRuns(a.id)).some(x => x.status === 'error' && /Gave up continuing/.test(x.error || ''))).toBe(true);
+  });
 });
 
 describe('e-mail: preview, guard rails, providers, analytics', () => {
