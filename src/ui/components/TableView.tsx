@@ -10,6 +10,7 @@ import { findCandidates } from '../../research/auto';
 import { findNameField, issueTokensForRecords } from '../../assessment/issuer';
 import { getSecrets, getSettings } from '../../core/settings';
 import { Confirm, Field_, Modal, download, ensureHostAccess, onRuntime, send, useTable, useToast } from '../bridge';
+import { copyRange, parseTsv, planPaste, type CellRange, type PastePlan } from '../../core/clipboard';
 import { Grid } from './Grid';
 import { FilterBuilder } from './FilterBuilder';
 import { FieldManager } from './FieldManager';
@@ -61,6 +62,17 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
   const renameView = async () => { const n = prompt('Rename view', view.name); if (n?.trim()) await patchView({ name: n.trim() }); };
   const delView = async () => { if (views.length < 2) return toast('A table needs at least one view.', 'bad'); if (!confirm(`Delete the view “${view.name}”? Only the view goes – no records.`)) return; await S.deleteView(view.id); setViewId(''); await data.reloadMeta(); };
 
+  /** Writes a planned paste (or clear) record by record, then offers Undo. Pasting counts as typing: automations see the changes. */
+  const applyPlan = async (plan: PastePlan) => {
+    const notes = [plan.skipped.length ? `${plan.skipped.length} skipped (${plan.skipped[0].field}, row ${plan.skipped[0].row}: ${plan.skipped[0].why})` : '', plan.readOnly ? `${plan.readOnly} in calculated or file fields not written` : '', plan.ignoredRows ? `${plan.ignoredRows} past the last row not written` : '', plan.ignoredCols ? `${plan.ignoredCols} past the last column not written` : ''].filter(Boolean).join('; ');
+    if (!plan.updates.length) { toast(notes || 'Nothing changed.', notes ? 'bad' : ''); return; }
+    let done = 0;
+    try { for (const u of plan.updates) { data.upsert(await S.updateRecord(u.recordId, u.cells)); done++; } } catch (e: any) { toast(e.message, 'bad'); }
+    const undo = plan.updates.slice(0, done);
+    toast(`Changed ${plan.cells.toLocaleString()} cell(s) in ${done.toLocaleString()} record(s)${notes ? ` · ${notes}` : ''}`, 'good', { label: 'Undo', run: async () => { try { for (const u of undo) data.upsert(await S.updateRecord(u.recordId, u.before as Record<string, CellValue>)); toast('Undone', 'good'); } catch (e: any) { toast(e.message, 'bad'); } } });
+  };
+  const pasteText = (text: string, at: { r: number; c: number }, fill: CellRange | null) => { const grid = parseTsv(text); if (grid.length) void applyPlan(planPaste({ grid, start: at, rows, fields: visibleFields, fill })); };
+  const clearRange = (range: CellRange) => void applyPlan(planPaste({ grid: [['']], start: { r: range.r1, c: range.c1 }, rows, fields: visibleFields, fill: range }));
   const onEdit = async (id: string, fieldId: string, value: CellValue) => { try { data.upsert(await S.updateRecord(id, { [fieldId]: value })); } catch (e: any) { toast(e.message, 'bad'); } };
   const newRecord = async () => { const r = await S.createRecord(tableId, {}); data.upsert(r); setOpen(r.id); };
   const exportCsv = (onlySel: boolean) => { const rs = rows.filter(r => !onlySel || selected.has(r.rec.id)); download(`${(title || data.table?.name || 'records').replace(/\W+/g, '-')}.csv`, toCsv(visibleFields, rs.map(r => r.values)), 'text/csv;charset=utf-8'); };
@@ -117,7 +129,7 @@ export function TableView({ tableId, title }: { tableId: string; title?: string 
       {pop === 'filter' && view && <div className="panel-pop"><FilterBuilder group={view.filter} fields={fields} onChange={setFilter} /><div className="row" style={{ marginTop: 6 }}><button className="sm" onClick={() => setFilter(emptyGroup())}>Clear filter</button><span className="muted small">Saved automatically with this view.</span></div></div>}
       {pop === 'sort' && view && <div className="panel-pop">{view.sort.map((s, i) => <div className="rule" key={i}><select value={s.fieldId} onChange={e => patchView({ sort: view.sort.map((x, j) => (j === i ? { ...x, fieldId: e.target.value } : x)) })}>{fields.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><select value={s.dir} onChange={e => patchView({ sort: view.sort.map((x, j) => (j === i ? { ...x, dir: e.target.value as 'asc' | 'desc' } : x)) })}><option value="asc">A → Z / low → high</option><option value="desc">Z → A / high → low</option></select><button className="ghost sm" onClick={() => patchView({ sort: view.sort.filter((_, j) => j !== i) })}>✕</button></div>)}<button className="sm" onClick={() => patchView({ sort: [...view.sort, { fieldId: fields[0].id, dir: 'asc' }] })}>+ Sort</button></div>}
       {selected.size > 0 && <div className="selbar" role="toolbar"><b>{selected.size.toLocaleString()} selected</b><button onClick={() => research([...selected].slice(0, 500))}>✦ Research</button>{nameField && <><button onClick={() => issueTokens([...selected], false)}>Issue tokens</button><button onClick={() => issueTokens([...selected], true)}>Re-issue (cancels old)</button></>}<button onClick={() => exportCsv(true)}>Export CSV</button><button onClick={() => setConfirmDel(true)}>Delete</button><button className="ghost" style={{ color: '#fff' }} onClick={() => setSelected(new Set())}>Clear</button></div>}
-      <Grid fields={visibleFields} rows={rows} errors={errors} selected={selected} onSelect={setSelected} sort={view?.sort || []} onSort={toggleSort} onEdit={onEdit} onOpen={setOpen} />
+      <Grid fields={visibleFields} rows={rows} errors={errors} selected={selected} onSelect={setSelected} sort={view?.sort || []} onSort={toggleSort} onEdit={onEdit} onOpen={setOpen} copyText={range => copyRange(rows, visibleFields, range)} onPasteText={pasteText} onClearRange={clearRange} />
       {open && <RecordPanel recordId={open} fields={fields} onClose={() => setOpen(null)} onChanged={() => void data.refreshOne(open)} />}
       {fm && <FieldManager tableId={tableId} fields={fields} sample={sample} onClose={() => setFm(false)} onChanged={() => void data.reloadMeta()} />}
       {imp && <ImportModal tableId={tableId} onClose={() => setImp(false)} onDone={() => void data.reload()} />}

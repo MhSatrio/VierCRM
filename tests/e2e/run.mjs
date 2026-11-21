@@ -380,6 +380,35 @@ try {
   await app.getByRole('button', { name: 'Put back' }).first().click(); await sleep(800);
   check('Put back restores it', (await countRows()) === nBefore);
 
+  step('Spreadsheet cells: range, copy, paste, clear, undo');
+  await app.goto(`chrome-extension://${extId}/app.html?e2e#/base/tbl_research`); await app.waitForSelector('.g-row', { timeout: 15000 }); await sleep(500);
+  { const h = app.locator('.g-hc').first(); for (let i = 0; i < 2 && (await h.getAttribute('aria-sort')) !== 'none'; i++) { await h.click(); await sleep(300); } }   // the keyboard step above left the first column sorted: back to the table order
+  const cell = (r, c) => app.locator('.g-row').nth(r).locator('[role=gridcell]').nth(c);
+  const cellTexts = async (r, cs) => { const o = []; for (const c of cs) o.push((await cell(r, c).innerText()).trim()); return o; };
+  await cell(0, 0).click(); await cell(1, 1).click({ modifiers: ['Shift'] });
+  check('Shift+click selects a block of cells', (await app.locator('.g-c.rng').count()) === 4);
+  const copied = await app.evaluate(() => { const dt = new DataTransfer(); const ev = new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }); document.querySelector('.grid-wrap').dispatchEvent(ev); return dt.getData('text/plain'); });
+  const copiedLines = copied.split(/\r?\n/);
+  check('Ctrl+C puts the block on the clipboard as tab-separated text (2 lines of 2 cells)', copiedLines.length === 2 && copiedLines.every(l => l.split('\t').length === 2), JSON.stringify(copied));
+  const before = await cellTexts(0, [0]); const before1 = await cellTexts(1, [0]);
+  await cell(0, 0).click();
+  await app.evaluate(() => { const dt = new DataTransfer(); dt.setData('text/plain', 'Pasted One\r\nPasted Two'); document.querySelector('.grid-wrap').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); });
+  await sleep(900);
+  check('Ctrl+V writes two lines into the two rows below the cursor', (await cellTexts(0, [0]))[0] === 'Pasted One' && (await cellTexts(1, [0]))[0] === 'Pasted Two');
+  check('the message says how many cells changed and offers Undo', /Changed 2 cell/.test(await app.locator('.toasts').innerText()) && (await app.locator('.toast button', { hasText: 'Undo' }).count()) >= 1);
+  await app.locator('.toast button', { hasText: 'Undo' }).last().click(); await sleep(900);
+  check('Undo puts the old values back', (await cellTexts(0, [0]))[0] === before[0] && (await cellTexts(1, [0]))[0] === before1[0]);
+  await cell(0, 0).click(); await cell(1, 0).click({ modifiers: ['Shift'] });
+  await app.evaluate(() => { const dt = new DataTransfer(); dt.setData('text/plain', 'Same'); document.querySelector('.grid-wrap').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); }); await sleep(900);
+  check('one value pasted over a selection fills the whole selection', (await cellTexts(0, [0]))[0] === 'Same' && (await cellTexts(1, [0]))[0] === 'Same');
+  await app.keyboard.press('Delete'); await sleep(900);
+  check('Delete clears the selected cells', (await cellTexts(0, [0]))[0] === '' && (await cellTexts(1, [0]))[0] === '');
+  await app.locator('.toast button', { hasText: 'Undo' }).last().click(); await sleep(900);
+  check('Undo after Delete brings the values back', (await cellTexts(0, [0]))[0] === 'Same');
+  await app.locator('.toast button', { hasText: 'Undo' }).last().click().catch(() => {}); await sleep(300);
+  await cell(0, 0).click(); await app.keyboard.press('ArrowDown'); await app.keyboard.press('Shift+ArrowRight');
+  check('arrow keys move the cursor and Shift+arrow extends the range', (await app.locator('.g-c.cur').count()) === 1 && (await app.locator('.g-c.rng').count()) === 2);
+
   step('Backup and restore round-trip');
   const rt = await ev(async () => { const { DB, S } = window.__vier; const before = (await S.listRecords('tbl_research')).length; const dump = JSON.parse(JSON.stringify(await DB.exportBackup())); await DB.wipeAll(); const wiped = (await S.listRecords('tbl_research')).length; await DB.importBackup(dump); const files = await DB.all('files'); return { before, wiped, after: (await S.listRecords('tbl_research')).length, files: files.length, pdf: files[0] && files[0].data.byteLength > 50 }; });
   check('full backup (incl. attachments) restores every record and the stored PDF', rt.wiped === 0 && rt.after === rt.before && rt.files >= 1 && rt.pdf, JSON.stringify(rt));

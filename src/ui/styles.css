@@ -105,3 +105,8 @@ table.t { border-collapse: collapse; width: 100%; } table.t th, table.t td { tex
 
 .g-hc:focus-visible { outline: 3px solid var(--primary, #4570B6); outline-offset: -3px; }
 .toast button { margin-left: 10px; background: #fff; color: var(--ink); border: 0; border-radius: 6px; padding: 3px 10px; font-weight: 600; cursor: pointer; }
+
+.grid-wrap:focus-visible { outline: 2px solid var(--primary, #4570B6); outline-offset: -2px; }
+.g-c { user-select: none; }
+.g-c.rng { background: #e3f1fb; }
+.g-c.cur { outline: 2px solid var(--primary, #4570B6); outline-offset: -2px; background: #fff; }
